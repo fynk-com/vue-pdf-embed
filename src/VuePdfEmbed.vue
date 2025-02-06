@@ -383,9 +383,11 @@ defineExpose({
            AND no activeSection is selected. -->
       <div
         v-if="shouldShowSectionTitle(pageNum)"
-        :class="props.sectionTitleStyles"
+        class="flex items-center justify-center"
       >
-        {{ findSectionForPage(pageNum)?.title }}
+        <div :class="props.sectionTitleStyles">
+          {{ findSectionForPage(pageNum)?.title }}
+        </div>
       </div>
 
       <slot name="before-page" :page="pageNum" />

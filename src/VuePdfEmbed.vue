@@ -92,10 +92,6 @@ const props = withDefaults(
      * Whether to show the section title even if there is an active section.
      */
     alwaysShowSectionTitles?: boolean
-    /**
-     * The styles for the section title.
-     */
-    sectionTitleStyles?: string
   }>(),
   {
     rotation: 0,
@@ -381,14 +377,12 @@ defineExpose({
     <div v-for="pageNum in pageNums" :key="pageNum">
       <!-- Conditionally show the section title if it's the start of a section
            AND no activeSection is selected. -->
-      <div
+      <slot
         v-if="shouldShowSectionTitle(pageNum)"
-        class="flex items-center justify-center"
-      >
-        <div :class="props.sectionTitleStyles">
-          {{ findSectionForPage(pageNum)?.title }}
-        </div>
-      </div>
+        name="section-title"
+        :title="findSectionForPage(pageNum)?.title"
+        class="flex items-center"
+      />
 
       <slot name="before-page" :page="pageNum" />
 

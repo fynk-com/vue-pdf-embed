@@ -22,6 +22,14 @@ import {
 import { useVuePdfEmbed } from './composables'
 import PdfPage from './PdfPage.vue'
 
+// Define your DocumentSection interface
+export interface DocumentSection {
+  first_page: number
+  last_page: number
+  label: string
+  title: string
+}
+
 const props = withDefaults(
   defineProps<{
     /**
@@ -37,8 +45,7 @@ const props = withDefaults(
      */
     height?: number
     /**
-     * Root element identifier (inherited by page containers with page number
-     * postfixes).
+     * Root element identifier (inherited by page containers).
      */
     id: string
     /**
@@ -50,7 +57,7 @@ const props = withDefaults(
      */
     linkService?: PDFLinkService
     /**
-     * Number of the page to display.
+     * Number of the page to display (single-page mode).
      */
     page?: number
     /**
@@ -73,6 +80,14 @@ const props = withDefaults(
      * Desired page width.
      */
     width?: number
+    /**
+     * The section to display.
+     */
+    activeSection?: DocumentSection
+    /**
+     * The sections of the document.
+     */
+    sections?: DocumentSection[]
   }>(),
   {
     rotation: 0,
@@ -103,7 +118,7 @@ const { doc } = useVuePdfEmbed({
     emit('loading-failed', e)
   },
   onPasswordRequest({ callback, isWrongPassword }) {
-    emit('password-requested', { callback, isWrongPassword });
+    emit('password-requested', { callback, isWrongPassword })
   },
   onProgress: (progressParams) => {
     emit('progress', progressParams)
@@ -111,25 +126,60 @@ const { doc } = useVuePdfEmbed({
   source: toRef(props, 'source'),
 }) as { doc: Ref<PDFDocumentProxy> }
 
-// Reactive variable to hold page numbers
-const pageNums = ref<number[]>([])
+// ----------------------------------------
+// 1) DEFINE A COMPUTED ARRAY OF PAGE NUMBERS
+//    to display based on either:
+//    - single page (props.page)
+//    - a section (props.activeSection)
+//    - or the entire doc
+// ----------------------------------------
+const pageNums = computed<number[]>(() => {
+  if (!doc.value) {
+    return []
+  }
 
-// Watch for doc changes to initialize pageNums
+  // If single-page mode, use that single page
+  if (props.page) {
+    return [props.page]
+  }
+
+  // If a specific section is active, use its page range
+  if (props.activeSection) {
+    const start = props.activeSection.first_page
+    const end = Math.min(props.activeSection.last_page, doc.value.numPages)
+    const pages: number[] = []
+    for (let p = start; p <= end; p++) {
+      pages.push(p)
+    }
+    return pages
+  }
+
+  // Otherwise, display the entire document
+  return Array.from({ length: doc.value.numPages }, (_, i) => i + 1)
+})
+
+// ----------------------------------------
+// 2) EMIT 'LOADED' WHEN THE DOCUMENT IS READY
+// ----------------------------------------
 watch(
   doc,
   (newDoc) => {
     if (newDoc) {
-      if (props.page) {
-        pageNums.value = [props.page]
-      } else {
-        pageNums.value = Array.from(
-          { length: newDoc.numPages },
-          (_, i) => i + 1
-        )
-      }
       emit('loaded', newDoc)
-    } else {
-      pageNums.value = []
+    }
+  },
+  { immediate: true }
+)
+
+// ----------------------------------------
+// 3) EMIT 'rendered' ONCE WHEN WE ACTUALLY
+//    HAVE SOME PAGES TO SHOW
+// ----------------------------------------
+watch(
+  () => pageNums.value,
+  (newVal) => {
+    if (newVal.length > 0) {
+      emit('rendered')
     }
   },
   { immediate: true }
@@ -164,20 +214,18 @@ const linkService = computed(() => {
 provide('linkService', linkService.value)
 
 const handleInternalLinkClick = (pageNumber: number) => {
+  // Implement page navigation logic if you want
+  // For now, just log the page number or emit an event
   console.log(`Internal link clicked: ${pageNumber}`)
-  // Implement page navigation logic
-  // For example, scroll to the page or update the current page prop
 }
 
 /**
  * Downloads the PDF document.
- * @param filename - Predefined filename to save.
  */
 const download = async (filename: string) => {
   if (!doc.value) {
     return
   }
-
   const data = await doc.value.getData()
   const metadata = await doc.value.getMetadata()
   const suggestedFilename =
@@ -188,9 +236,6 @@ const download = async (filename: string) => {
 
 /**
  * Prints a PDF document via the browser interface.
- * @param dpi - Print resolution.
- * @param filename - Predefined filename to save.
- * @param allPages - Whether to ignore the page prop and print all pages.
  */
 const print = async (dpi = 300, filename = '', allPages = false) => {
   if (!doc.value) {
@@ -209,13 +254,13 @@ const print = async (dpi = 300, filename = '', allPages = false) => {
     window.document.body.appendChild(container)
     iframe = await createPrintIframe(container)
 
-    const pageNums =
+    const pageNumbersToPrint =
       props.page && !allPages
         ? [props.page]
         : [...Array(doc.value.numPages + 1).keys()].slice(1)
 
     await Promise.all(
-      pageNums.map(async (pageNum, i) => {
+      pageNumbersToPrint.map(async (pageNum, i) => {
         const page = await doc.value!.getPage(pageNum)
         const viewport = page.getViewport({
           scale: 1,
@@ -267,12 +312,10 @@ onBeforeUnmount(() => {
   releaseChildCanvases(root.value)
 })
 
-// Define the pagesToRender array
+// Rendering optimization variables
 const pagesToRender = ref<number[]>([])
-// Define a Set to keep track of visible pages
 const visiblePages = new Set<number>()
 
-// Handler for visibility-changed events
 const onVisibilityChanged = ({
   pageNum,
   isVisible,
@@ -286,7 +329,7 @@ const onVisibilityChanged = ({
     visiblePages.delete(pageNum)
   }
 
-  // Recalculate pagesToRender
+  // Recalculate pagesToRender around visible pages
   const newPagesToRender = new Set<number>()
   visiblePages.forEach((visiblePageNum) => {
     const pages = [
@@ -299,16 +342,21 @@ const onVisibilityChanged = ({
   pagesToRender.value = Array.from(newPagesToRender)
 }
 
-// Initial render event after pageNums is first set
-watch(
-  pageNums,
-  () => {
-    if (pageNums.value.length > 0) {
-      emit('rendered')
-    }
-  },
-  { immediate: true }
-)
+// ----------------------------------------
+// 4) HELPER FOR SECTION TITLES
+//    Only show if we are *not* in single-section mode
+// ----------------------------------------
+const findSectionForPage = (pageNum: number): DocumentSection | undefined => {
+  return props.sections?.find((section) => section.first_page === pageNum)
+}
+
+const shouldShowSectionTitle = (pageNum: number): boolean => {
+  // Only show section headers if there is no activeSection
+  // (meaning we are displaying multiple or all sections)
+  if (props.activeSection) return false
+  // Show a header if this page is the first page of some section
+  return Boolean(findSectionForPage(pageNum))
+}
 
 defineExpose({
   doc,
@@ -319,7 +367,17 @@ defineExpose({
 
 <template>
   <div :id="id" ref="root" class="vue-pdf-embed">
+    <!-- Render the (computed) pageNums -->
     <div v-for="pageNum in pageNums" :key="pageNum">
+      <!-- Conditionally show the section title if it's the start of a section
+           AND no activeSection is selected. -->
+      <div
+        v-if="shouldShowSectionTitle(pageNum)"
+        class="rounded-full px-2 py-0.5 text-xs font-semibold text-white bg-indigo-700 mb-1"
+      >
+        {{ findSectionForPage(pageNum)?.title }}
+      </div>
+
       <slot name="before-page" :page="pageNum" />
 
       <PdfPage

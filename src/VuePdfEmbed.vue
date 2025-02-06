@@ -381,6 +381,7 @@ defineExpose({
         v-if="shouldShowSectionTitle(pageNum)"
         name="section-title"
         :title="findSectionForPage(pageNum)?.title"
+        :label="findSectionForPage(pageNum)?.label"
         class="flex items-center"
       />
 

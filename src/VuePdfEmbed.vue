@@ -88,11 +88,21 @@ const props = withDefaults(
      * The sections of the document.
      */
     sections?: DocumentSection[]
+    /**
+     * Whether to show the section title even if there is an active section.
+     */
+    alwaysShowSectionTitles?: boolean
+    /**
+     * The styles for the section title.
+     */
+    sectionTitleStyles?: string
   }>(),
   {
     rotation: 0,
     scale: 1,
     formLayer: false,
+    alwaysShowSectionTitles: false,
+    sectionTitleStyles: '',
   }
 )
 
@@ -353,7 +363,7 @@ const findSectionForPage = (pageNum: number): DocumentSection | undefined => {
 const shouldShowSectionTitle = (pageNum: number): boolean => {
   // Only show section headers if there is no activeSection
   // (meaning we are displaying multiple or all sections)
-  if (props.activeSection) return false
+  if (props.activeSection && !props.alwaysShowSectionTitles) return false
   // Show a header if this page is the first page of some section
   return Boolean(findSectionForPage(pageNum))
 }
@@ -373,7 +383,7 @@ defineExpose({
            AND no activeSection is selected. -->
       <div
         v-if="shouldShowSectionTitle(pageNum)"
-        class="rounded-full px-2 py-0.5 text-xs font-semibold text-white bg-indigo-700 mb-1"
+        :class="props.sectionTitleStyles"
       >
         {{ findSectionForPage(pageNum)?.title }}
       </div>

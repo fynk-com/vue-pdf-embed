@@ -17,6 +17,7 @@ import type {
 
 import type { PasswordRequestParams, Source } from './types'
 import { isDocument } from './utils'
+import type { DocumentInitParameters } from 'pdfjs-dist/types/src/display/api'
 
 export function useVuePdfEmbed({
   onError,
@@ -45,9 +46,11 @@ export function useVuePdfEmbed({
     }
 
     try {
-      docLoadingTask.value = getDocument(
-        sourceValue as Parameters<typeof getDocument>[0]
-      )
+      const params: DocumentInitParameters = {
+        url: sourceValue as string,
+        verbosity: 0,
+      }
+      docLoadingTask.value = getDocument(params)
 
       if (onPasswordRequest) {
         docLoadingTask.value!.onPassword = (

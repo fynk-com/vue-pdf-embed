@@ -1,6 +1,5 @@
-import * as pdfjsLib from 'pdfjs-dist'
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?worker'
-pdfjsLib.GlobalWorkerOptions.workerPort = new pdfjsWorker()
+import { GlobalWorkerOptions } from 'pdfjs-dist/build/pdf.mjs'
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 import { useVuePdfEmbed } from './composables'
 import VuePdfEmbed from './VuePdfEmbed.vue'
@@ -8,6 +7,10 @@ import VuePdfEmbed from './VuePdfEmbed.vue'
 if (window?.Vue) {
   window.VuePdfEmbed = VuePdfEmbed
   window.useVuePdfEmbed = useVuePdfEmbed
+}
+
+if (!GlobalWorkerOptions?.workerSrc) {
+  GlobalWorkerOptions.workerSrc = PdfWorker
 }
 
 export { useVuePdfEmbed }

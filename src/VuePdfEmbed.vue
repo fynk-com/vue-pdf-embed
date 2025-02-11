@@ -384,7 +384,7 @@ defineExpose({
         :label="findSectionForPage(pageNum)?.label"
         class="flex items-center"
       />
-      Test
+
       <slot name="before-page" :page="pageNum" />
 
       <PdfPage

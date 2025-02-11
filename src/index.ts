@@ -10,6 +10,7 @@ if (window?.Vue) {
 }
 
 if (!GlobalWorkerOptions?.workerSrc) {
+  console.log('setting worker src')
   GlobalWorkerOptions.workerSrc = PdfWorker
 }
 

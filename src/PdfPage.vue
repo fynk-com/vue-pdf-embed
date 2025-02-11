@@ -169,6 +169,8 @@ const renderFormFields = (
   formLayerDiv.style.aspectRatio = `${pageWidth.value} / ${pageHeight.value}`
 }
 
+const isRendered = ref(false)
+
 // Function to render the page
 const renderPage = async () => {
   if (!props.doc || !props.parentRoot) {
@@ -300,6 +302,7 @@ const renderPage = async () => {
 
     try {
       await Promise.all(renderTasks)
+      isRendered.value = true
       emit('rendered')
     } catch (error) {
       handleRenderError(error as Error)
@@ -322,6 +325,7 @@ const handleRenderError = (error: Error) => {
 
 // Function to clean up resources when the page is not rendered
 const cleanup = () => {
+  isRendered.value = false
   if (renderingTask) {
     renderingTask.cancel()
     renderingTask = null
@@ -463,6 +467,7 @@ watch(
       },
     ]"
   >
+    <slot v-if="!isRendered" name="page-loader" />
     <canvas></canvas>
     <div
       v-if="textLayer"
@@ -490,9 +495,7 @@ watch(
         height: '100%',
         background: '#FFFFFF',
       }"
-    >
-      <slot name="page-loader" />
-    </div>
+    ></div>
   </div>
 </template>
 

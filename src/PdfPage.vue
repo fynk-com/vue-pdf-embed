@@ -8,7 +8,7 @@ import {
   computed,
   shallowRef,
 } from 'vue'
-import { AnnotationLayer, TextLayer } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { AnnotationLayer, TextLayer } from 'pdfjs-dist'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { emptyElement, releaseCanvas } from './utils'
 import type { PDFLinkService } from 'pdfjs-dist/web/pdf_viewer.mjs'

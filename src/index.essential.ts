@@ -1,3 +1,3 @@
-export { GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
+export { GlobalWorkerOptions } from 'pdfjs-dist'
 export { useVuePdfEmbed } from './composables'
 export { default } from './VuePdfEmbed.vue'

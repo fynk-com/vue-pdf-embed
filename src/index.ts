@@ -1,4 +1,4 @@
-import { GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { GlobalWorkerOptions } from 'pdfjs-dist'
 import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 import { useVuePdfEmbed } from './composables'

@@ -8,7 +8,7 @@ import {
   type MaybeRef,
   type ShallowRef,
 } from 'vue'
-import { PasswordResponses, getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { PasswordResponses, getDocument } from 'pdfjs-dist'
 import type {
   OnProgressParameters,
   PDFDocumentLoadingTask,

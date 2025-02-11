@@ -165,8 +165,8 @@ const renderFormFields = (
   })
 
   // Adjust formLayerDiv dimensions
-  formLayerDiv.style.width = `${viewport.width}px`
-  formLayerDiv.style.height = `${viewport.height}px`
+  formLayerDiv.style.width = `100%`
+  formLayerDiv.style.aspectRatio = `${pageWidth.value} / ${pageHeight.value}`
 }
 
 // Function to render the page

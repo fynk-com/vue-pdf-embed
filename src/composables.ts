@@ -48,7 +48,7 @@ export function useVuePdfEmbed({
     try {
       const params: DocumentInitParameters = {
         url: sourceValue as string,
-        verbosity: 0,
+        verbosity: 1,
       }
       docLoadingTask.value = getDocument(params)
 

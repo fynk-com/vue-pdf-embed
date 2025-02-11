@@ -405,7 +405,11 @@ defineExpose({
         @rendered="onPageRendered"
         @rendering-failed="onRenderingFailed"
         @visibility-changed="onVisibilityChanged"
-      />
+      >
+        <template #page-loader>
+          <slot name="page-loader" />
+        </template>
+      </PdfPage>
 
       <slot name="after-page" :page="pageNum" />
     </div>

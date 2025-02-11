@@ -490,7 +490,9 @@ watch(
         height: '100%',
         background: '#FFFFFF',
       }"
-    ></div>
+    >
+      <slot name="page-loader" />
+    </div>
   </div>
 </template>
 

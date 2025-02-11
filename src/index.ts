@@ -1,5 +1,5 @@
 import { GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
-import PdfWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 import { useVuePdfEmbed } from './composables'
 import VuePdfEmbed from './VuePdfEmbed.vue'
@@ -10,7 +10,6 @@ if (window?.Vue) {
 }
 
 if (!GlobalWorkerOptions?.workerSrc) {
-  console.log('setting worker src')
   GlobalWorkerOptions.workerSrc = PdfWorker
 }
 

@@ -427,6 +427,14 @@ watch(
   () => [props.scale, props.rotation, props.width, props.height],
   () => {
     // Recalculate dimensions and re-render if needed
+    console.log(
+      'options',
+      props.scale,
+      props.rotation,
+      props.width,
+      props.height,
+      props.pageNum
+    )
     if (shouldRender.value) {
       cleanup()
       renderPage()
@@ -438,6 +446,7 @@ watch(
 watch(
   () => shouldRender.value,
   (newValue) => {
+    console.log('shouldRender', newValue, props.pageNum)
     if (newValue) {
       renderPage()
     } else {

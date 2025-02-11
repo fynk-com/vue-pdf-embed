@@ -467,7 +467,6 @@ watch(
       },
     ]"
   >
-    <slot v-if="!isRendered" name="page-loader" />
     <canvas></canvas>
     <div
       v-if="textLayer"
@@ -496,6 +495,7 @@ watch(
         background: '#FFFFFF',
       }"
     ></div>
+    <slot v-if="!isRendered" name="page-loader" />
   </div>
 </template>
 

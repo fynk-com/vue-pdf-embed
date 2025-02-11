@@ -8,7 +8,7 @@ import {
   type MaybeRef,
   type ShallowRef,
 } from 'vue'
-import { PasswordResponses, getDocument } from 'pdfjs-dist'
+import { PasswordResponses, VerbosityLevel, getDocument } from 'pdfjs-dist'
 import type {
   OnProgressParameters,
   PDFDocumentLoadingTask,
@@ -48,7 +48,7 @@ export function useVuePdfEmbed({
     try {
       const params: DocumentInitParameters = {
         url: sourceValue as string,
-        verbosity: 1,
+        verbosity: VerbosityLevel.ERRORS,
       }
       docLoadingTask.value = getDocument(params)
 

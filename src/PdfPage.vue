@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount, inject, computed, shallowRef } from 'vue'
+import {
+  ref,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+  inject,
+  computed,
+  shallowRef,
+} from 'vue'
 import { AnnotationLayer, TextLayer } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { emptyElement, releaseCanvas } from './utils'
@@ -88,7 +96,9 @@ const renderFormFields = (
   }
 ) => {
   const transformedAnnotations = annotations.map((annotation) => {
-    const transformedRect = annotationLayerViewport.convertToViewportRectangle(annotation.rect)
+    const transformedRect = annotationLayerViewport.convertToViewportRectangle(
+      annotation.rect
+    )
     // Identify form field types
     let fieldCategory = null
     if (annotation.subtype === 'Widget') {
@@ -196,8 +206,12 @@ const renderPage = async () => {
     })
 
     const canvas = root.value?.querySelector('canvas') as HTMLCanvasElement
-    const textLayerDiv = root.value?.querySelector('.textLayer') as HTMLDivElement
-    const annotationLayerDiv = root.value?.querySelector('.annotationLayer') as HTMLDivElement
+    const textLayerDiv = root.value?.querySelector(
+      '.textLayer'
+    ) as HTMLDivElement
+    const annotationLayerDiv = root.value?.querySelector(
+      '.annotationLayer'
+    ) as HTMLDivElement
 
     if (!canvas) {
       return
@@ -273,8 +287,15 @@ const renderPage = async () => {
       })
       renderTasks.push(annotationRenderTask)
 
-      const formLayerDiv = document.querySelector('#' + props.id + ' .formLayer') as HTMLElement
-      renderFormFields(formLayerDiv, annotations, viewport, annotationLayerViewport)
+      const formLayerDiv = document.querySelector(
+        '#' + props.id + ' .formLayer'
+      ) as HTMLElement
+      renderFormFields(
+        formLayerDiv,
+        annotations,
+        viewport,
+        annotationLayerViewport
+      )
     }
 
     try {
@@ -317,7 +338,9 @@ const cleanup = () => {
   if (textLayerDiv) {
     emptyElement(textLayerDiv)
   }
-  const annotationLayerDiv = root.value?.querySelector('.annotationLayer') as HTMLElement
+  const annotationLayerDiv = root.value?.querySelector(
+    '.annotationLayer'
+  ) as HTMLElement
   if (annotationLayerDiv) {
     emptyElement(annotationLayerDiv)
   }
@@ -375,7 +398,10 @@ const setup = async () => {
         const wasVisible = isVisible.value
         isVisible.value = entry.isIntersecting
         if (isVisible.value !== wasVisible) {
-          emit('visibility-changed', { pageNum: props.pageNum, isVisible: isVisible.value })
+          emit('visibility-changed', {
+            pageNum: props.pageNum,
+            isVisible: isVisible.value,
+          })
         }
       },
       { root: null, threshold: 0.1 }
@@ -430,9 +456,8 @@ watch(
     :style="[
       {
         position: 'relative',
-      },
-      {
         maxWidth: pageWidth + 'px',
+        background: '#FFFFFF',
         width: '100%',
         aspectRatio: `${pageWidth} / ${pageHeight}`,
       },

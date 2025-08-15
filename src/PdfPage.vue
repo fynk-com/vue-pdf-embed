@@ -246,6 +246,7 @@ const renderPage = async () => {
     }
 
     const renderContext = {
+      canvas: canvas,
       canvasContext: context,
       viewport: scaledViewport,
     }

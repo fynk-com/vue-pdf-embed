@@ -263,7 +263,7 @@ const print = async (dpi = 300, filename = '', allPages = false) => {
     const pageNumbersToPrint =
       props.page && !allPages
         ? [props.page]
-        : [...Array(doc.value.numPages + 1).keys()].slice(1)
+        : Array.from({ length: doc.value.numPages }, (_, i) => i + 1)
 
     await Promise.all(
       pageNumbersToPrint.map(async (pageNum, i) => {
@@ -288,6 +288,7 @@ const print = async (dpi = 300, filename = '', allPages = false) => {
 
         await page.render({
           canvasContext: canvas.getContext('2d')!,
+          canvas: canvas,
           intent: 'print',
           transform: [printUnits, 0, 0, printUnits, 0, 0],
           viewport,

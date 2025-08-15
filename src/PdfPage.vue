@@ -258,6 +258,8 @@ const renderPage = async () => {
     // Render text layer if enabled
     if (props.textLayer && textLayerDiv) {
       const textLayerViewport = viewport.clone({ dontFlip: true })
+      const { scale } = viewport
+      textLayerDiv.style.setProperty('--total-scale-factor', `${scale}`)
       const textLayerRenderTask = new TextLayer({
         container: textLayerDiv,
         textContentSource: await page.getTextContent(),

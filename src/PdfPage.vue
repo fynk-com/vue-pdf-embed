@@ -53,7 +53,6 @@ let page: PDFPageProxy | null = null
 
 // Inject the linkService from the parent component
 const injectedLinkService = inject('linkService') as PDFLinkService
-console.log('injectedLinkService', injectedLinkService)
 
 // Function to get page dimensions
 const getPageDimensions = (ratio: number): [number, number] => {

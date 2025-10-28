@@ -200,9 +200,7 @@ const onRenderingFailed = (e: Error) => {
 }
 
 const linkService = computed(() => {
-  if (!doc.value || !props.annotationLayer) {
-    return null
-  } else if (props.linkService) {
+  if (props.linkService && doc.value && props.annotationLayer) {
     return props.linkService
   }
 

@@ -52,28 +52,7 @@ let renderingTask: { promise: Promise<void>; cancel: () => void } | null = null
 let page: PDFPageProxy | null = null
 
 // Inject the linkService from the parent component
-const injectedLinkService = inject('linkService') as PDFLinkService | null
-
-// Create a fallback link service if none is provided
-const linkService = injectedLinkService || {
-  addLinkAttributes: () => {},
-  getDestinationHash: () => '',
-  getAnchorUrl: () => '',
-  setHash: () => {},
-  executeNamedAction: () => {},
-  executeSetOCGState: () => {},
-  cachePageRef: () => {},
-  goToDestination: async () => {},
-  goToPage: async () => {},
-  goToXY: async () => {},
-  pagesCount: 0,
-  page: 1,
-  rotation: 0,
-  isInPresentationMode: false,
-  externalLinkEnabled: true,
-  externalLinkTarget: null,
-  externalLinkRel: null,
-}
+const injectedLinkService = inject('linkService') as PDFLinkService
 
 // Function to get page dimensions
 const getPageDimensions = (ratio: number): [number, number] => {
@@ -302,14 +281,14 @@ const renderPage = async () => {
         structTreeLayer: null,
         viewport,
         commentManager: null,
-        linkService,
+        linkService: injectedLinkService,
         annotationStorage: null,
       })
       const annotationRenderTask = annotationLayer.render({
         annotations,
         div: annotationLayerDiv,
         imageResourcesPath: props.imageResourcesPath,
-        linkService,
+        linkService: injectedLinkService,
         page,
         renderForms: false,
         viewport: annotationLayerViewport,

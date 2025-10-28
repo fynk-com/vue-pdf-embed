@@ -271,6 +271,9 @@ const renderPage = async () => {
     // Render annotation layer if enabled
     if (props.annotationLayer && annotationLayerDiv) {
       const annotationLayerViewport = viewport.clone({ dontFlip: true })
+      if (!page) {
+        return
+      }
       const annotations = await page.getAnnotations({ intent: 'display' })
       const annotationLayer = new AnnotationLayer({
         accessibilityManager: null,
@@ -298,6 +301,9 @@ const renderPage = async () => {
       const formLayerDiv = document.querySelector(
         '#' + props.id + ' .formLayer'
       ) as HTMLElement
+      if (!formLayerDiv) {
+        return
+      }
       renderFormFields(
         formLayerDiv,
         annotations,

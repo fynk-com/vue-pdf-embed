@@ -308,9 +308,11 @@ const renderPage = async () => {
       isRendered.value = true
       emit('rendered')
     } catch (error) {
+      console.error('Failed to render page:', error)
       handleRenderError(error as Error)
     }
   } catch (error) {
+    console.error('Failed to render page:', error)
     emit('rendering-failed', error as Error)
   }
 }

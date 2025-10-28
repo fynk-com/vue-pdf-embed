@@ -185,8 +185,11 @@ const renderPage = async () => {
     const pageRotation = ((props.rotation % 360) + page.rotate) % 360
     // Determine if the page is transposed
     const isTransposed = !!((pageRotation / 90) % 2)
-    const viewWidth = page.view[2] - page.view[0]
-    const viewHeight = page.view[3] - page.view[1]
+    const viewWidth = (page?.view[2] || 0) - (page?.view[0] || 0)
+    const viewHeight = (page?.view[3] || 0) - (page?.view[1] || 0)
+    if (!viewWidth || !viewHeight) {
+      return
+    }
     // Calculate the actual width and height of the page
     const [actualWidth, actualHeight] = getPageDimensions(
       isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
@@ -400,8 +403,11 @@ const setup = async () => {
     }
     const pageRotation = ((props.rotation % 360) + page.rotate) % 360
     const isTransposed = !!((pageRotation / 90) % 2)
-    const viewWidth = page.view[2] - page.view[0]
-    const viewHeight = page.view[3] - page.view[1]
+    const viewWidth = (page.view[2] || 0) - (page.view[0] || 0)
+    const viewHeight = (page.view[3] || 0) - (page.view[1] || 0)
+    if (!viewWidth || !viewHeight) {
+      return
+    }
     const ratio = isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
     const [actualWidth, actualHeight] = getPageDimensions(ratio)
 

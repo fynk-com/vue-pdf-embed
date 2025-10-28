@@ -280,6 +280,9 @@ const renderPage = async () => {
         page,
         structTreeLayer: null,
         viewport,
+        commentManager: null,
+        linkService,
+        annotationStorage: null,
       })
       const annotationRenderTask = annotationLayer.render({
         annotations,

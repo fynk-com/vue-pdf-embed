@@ -50,24 +50,20 @@ const isVisible = ref(false)
 let observer: IntersectionObserver | null = null
 let resizeObserver: ResizeObserver | null = null
 let resizeRaf: number | null = null
-let pendingRetryRaf: number | null = null
+let lastLayoutWidth = 0
 let renderingTask: { promise: Promise<void>; cancel: () => void } | null = null
 let page: PDFPageProxy | null = null
-const pageRatio = ref<number | null>(null)
 
 // Inject the linkService from the parent component
 const injectedLinkService = inject('linkService') as PDFLinkService
 
-const getContainerWidth = (): number => {
-  if (!props.parentRoot) {
-    return 0
-  }
-  // Prefer layout width; fall back to DOMRect for late-mount cases.
-  const width = props.parentRoot.clientWidth
-  if (width > 0) {
-    return width
-  }
-  return props.parentRoot.getBoundingClientRect().width
+const getLayoutWidth = () => {
+  // Prefer explicit prop width; otherwise use the actual rendered page width.
+  // This matters when the page is constrained (e.g. auto-fit on small screens)
+  // while the parent container remains wider.
+  return (
+    props.width ?? root.value?.clientWidth ?? props.parentRoot?.clientWidth ?? 0
+  )
 }
 
 // Function to get page dimensions
@@ -79,27 +75,11 @@ const getPageDimensions = (ratio: number): [number, number] => {
     height = props.height
     width = height / ratio
   } else {
-    width = props.width ?? getContainerWidth()
+    width = getLayoutWidth()
     height = width * ratio
   }
 
   return [width, height]
-}
-
-const setPdfJsScaleVars = (viewport: unknown) => {
-  if (!root.value) {
-    return
-  }
-  const v = viewport as { scale?: number; userUnit?: number }
-  const scaleFactor = v.scale ?? 1
-  const userUnit = v.userUnit ?? 1
-  // pdf_viewer.css expects these CSS variables for text/annotation sizing.
-  root.value.style.setProperty('--scale-factor', `${scaleFactor}`)
-  root.value.style.setProperty('--user-unit', `${userUnit}`)
-  root.value.style.setProperty(
-    '--total-scale-factor',
-    `${scaleFactor * userUnit}`
-  )
 }
 
 // Computed property to determine if the page should render
@@ -223,25 +203,14 @@ const renderPage = async () => {
       return
     }
     // Calculate the actual width and height of the page
-    const ratio = isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
-    const [actualWidth, actualHeight] = getPageDimensions(ratio)
-    if (!actualWidth || !actualHeight) {
-      // Late-mount/layout: retry next frame to avoid capturing a bogus scale.
-      if (pendingRetryRaf == null) {
-        pendingRetryRaf = window.requestAnimationFrame(() => {
-          pendingRetryRaf = null
-          if (shouldRender.value) {
-            renderPage()
-          }
-        })
-      }
-      return
-    }
+    const [actualWidth, actualHeight] = getPageDimensions(
+      isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
+    )
 
     // Update pageWidth and pageHeight
     pageWidth.value = actualWidth
     pageHeight.value = actualHeight
-    pageRatio.value = ratio
+    lastLayoutWidth = actualWidth
 
     //const cssWidth = `${Math.floor(actualWidth)}px`
     //const cssHeight = `${Math.floor(actualHeight)}px`
@@ -253,8 +222,6 @@ const renderPage = async () => {
       scale: pageScale,
       rotation: pageRotation,
     })
-
-    setPdfJsScaleVars(viewport)
 
     const canvas = root.value?.querySelector('canvas') as HTMLCanvasElement
     const textLayerDiv = root.value?.querySelector(
@@ -307,6 +274,8 @@ const renderPage = async () => {
     // Render text layer if enabled
     if (props.textLayer && textLayerDiv) {
       const textLayerViewport = viewport.clone({ dontFlip: true })
+      const { scale } = viewport
+      textLayerDiv.style.setProperty('--total-scale-factor', `${scale}`)
       const textLayerRenderTask = new TextLayer({
         container: textLayerDiv,
         textContentSource: await page.getTextContent(),
@@ -329,7 +298,7 @@ const renderPage = async () => {
         div: annotationLayerDiv,
         page,
         structTreeLayer: null,
-        viewport: annotationLayerViewport,
+        viewport,
         commentManager: null,
         linkService: injectedLinkService,
         annotationStorage: null,
@@ -354,7 +323,7 @@ const renderPage = async () => {
       renderFormFields(
         formLayerDiv,
         annotations,
-        annotationLayerViewport,
+        viewport,
         annotationLayerViewport
       )
     }
@@ -453,7 +422,6 @@ const setup = async () => {
       return
     }
     const ratio = isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
-    pageRatio.value = ratio
     const [actualWidth, actualHeight] = getPageDimensions(ratio)
 
     // Update pageWidth and pageHeight
@@ -479,7 +447,7 @@ const setup = async () => {
       observer.observe(root.value)
     }
 
-    // Observe size changes to keep viewport scale in sync.
+    // Keep rendering scale in sync with responsive layout changes.
     resizeObserver?.disconnect()
     resizeObserver = new ResizeObserver(() => {
       if (resizeRaf != null) {
@@ -487,22 +455,20 @@ const setup = async () => {
       }
       resizeRaf = window.requestAnimationFrame(() => {
         resizeRaf = null
-
-        if (pageRatio.value) {
-          const [w, h] = getPageDimensions(pageRatio.value)
-          if (w && h) {
-            pageWidth.value = w
-            pageHeight.value = h
-          }
+        const nextWidth = getLayoutWidth()
+        if (!nextWidth) {
+          return
         }
-
+        if (Math.abs(nextWidth - lastLayoutWidth) < 1) {
+          return
+        }
         if (shouldRender.value) {
           cleanup()
           renderPage()
         }
       })
     })
-    resizeObserver.observe(props.parentRoot ?? root.value)
+    resizeObserver.observe(root.value)
   } catch (error) {
     console.error('Failed to get page for dimensions:', error)
   }
@@ -518,10 +484,6 @@ onBeforeUnmount(() => {
   if (resizeRaf != null) {
     cancelAnimationFrame(resizeRaf)
     resizeRaf = null
-  }
-  if (pendingRetryRaf != null) {
-    cancelAnimationFrame(pendingRetryRaf)
-    pendingRetryRaf = null
   }
   cleanup()
 })

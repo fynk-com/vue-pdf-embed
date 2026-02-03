@@ -104,30 +104,3 @@ export function releaseCanvas(canvas: HTMLCanvasElement) {
     // }
   }
 }
-
-// @internal
-export function computeTextLayerTotalScaleFactor({
-  baseScale,
-  viewportWidth,
-  canvasCssWidth,
-  userUnit = 1,
-}: {
-  baseScale: number
-  viewportWidth: number
-  canvasCssWidth: number
-  userUnit?: number
-}): number {
-  const uu = userUnit || 1
-  const expectedCssWidth = viewportWidth / uu
-  if (!canvasCssWidth || !expectedCssWidth) {
-    return baseScale
-  }
-
-  const correction = canvasCssWidth / expectedCssWidth
-  if (!Number.isFinite(correction)) {
-    return baseScale
-  }
-
-  const clamped = Math.min(1, correction)
-  return baseScale * (clamped < 0.999 ? clamped : 1)
-}

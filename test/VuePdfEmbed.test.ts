@@ -2,7 +2,6 @@ import { expect, test, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import VuePdfEmbed from '../src/VuePdfEmbed.vue'
-import { computeTextLayerTotalScaleFactor } from '../src/utils'
 
 HTMLCanvasElement.prototype.getContext = () => null
 
@@ -90,36 +89,4 @@ test('renders slots content', async () => {
   await flushPromises()
   expect(wrapper.html()).toMatch('AFTER')
   expect(wrapper.html()).toMatch('BEFORE')
-})
-
-test('computes text-layer scale correction', () => {
-  // Scenario 1/2: canvas width matches expected => no correction.
-  expect(
-    computeTextLayerTotalScaleFactor({
-      baseScale: 1,
-      viewportWidth: 896,
-      userUnit: 1,
-      canvasCssWidth: 896,
-    })
-  ).toBe(1)
-
-  // Scenario 3: auto-fit shrinks canvas below expected => downscale.
-  expect(
-    computeTextLayerTotalScaleFactor({
-      baseScale: 1,
-      viewportWidth: 896,
-      userUnit: 1,
-      canvasCssWidth: 896 * 0.4,
-    })
-  ).toBeCloseTo(0.4, 6)
-
-  // Never upscale if canvas is larger (or measurement jitter).
-  expect(
-    computeTextLayerTotalScaleFactor({
-      baseScale: 1,
-      viewportWidth: 896,
-      userUnit: 1,
-      canvasCssWidth: 1000,
-    })
-  ).toBe(1)
 })

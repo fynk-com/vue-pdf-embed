@@ -48,11 +48,27 @@ const pageHeight = ref<number>()
 const root = shallowRef<HTMLElement | null>(null)
 const isVisible = ref(false)
 let observer: IntersectionObserver | null = null
+let resizeObserver: ResizeObserver | null = null
+let resizeRaf: number | null = null
+let pendingRetryRaf: number | null = null
 let renderingTask: { promise: Promise<void>; cancel: () => void } | null = null
 let page: PDFPageProxy | null = null
+const pageRatio = ref<number | null>(null)
 
 // Inject the linkService from the parent component
 const injectedLinkService = inject('linkService') as PDFLinkService
+
+const getContainerWidth = (): number => {
+  if (!props.parentRoot) {
+    return 0
+  }
+  // Prefer layout width; fall back to DOMRect for late-mount cases.
+  const width = props.parentRoot.clientWidth
+  if (width > 0) {
+    return width
+  }
+  return props.parentRoot.getBoundingClientRect().width
+}
 
 // Function to get page dimensions
 const getPageDimensions = (ratio: number): [number, number] => {
@@ -63,11 +79,27 @@ const getPageDimensions = (ratio: number): [number, number] => {
     height = props.height
     width = height / ratio
   } else {
-    width = props.width ?? props.parentRoot!.clientWidth
+    width = props.width ?? getContainerWidth()
     height = width * ratio
   }
 
   return [width, height]
+}
+
+const setPdfJsScaleVars = (viewport: unknown) => {
+  if (!root.value) {
+    return
+  }
+  const v = viewport as { scale?: number; userUnit?: number }
+  const scaleFactor = v.scale ?? 1
+  const userUnit = v.userUnit ?? 1
+  // pdf_viewer.css expects these CSS variables for text/annotation sizing.
+  root.value.style.setProperty('--scale-factor', `${scaleFactor}`)
+  root.value.style.setProperty('--user-unit', `${userUnit}`)
+  root.value.style.setProperty(
+    '--total-scale-factor',
+    `${scaleFactor * userUnit}`
+  )
 }
 
 // Computed property to determine if the page should render
@@ -191,13 +223,25 @@ const renderPage = async () => {
       return
     }
     // Calculate the actual width and height of the page
-    const [actualWidth, actualHeight] = getPageDimensions(
-      isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
-    )
+    const ratio = isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
+    const [actualWidth, actualHeight] = getPageDimensions(ratio)
+    if (!actualWidth || !actualHeight) {
+      // Late-mount/layout: retry next frame to avoid capturing a bogus scale.
+      if (pendingRetryRaf == null) {
+        pendingRetryRaf = window.requestAnimationFrame(() => {
+          pendingRetryRaf = null
+          if (shouldRender.value) {
+            renderPage()
+          }
+        })
+      }
+      return
+    }
 
     // Update pageWidth and pageHeight
     pageWidth.value = actualWidth
     pageHeight.value = actualHeight
+    pageRatio.value = ratio
 
     //const cssWidth = `${Math.floor(actualWidth)}px`
     //const cssHeight = `${Math.floor(actualHeight)}px`
@@ -209,6 +253,8 @@ const renderPage = async () => {
       scale: pageScale,
       rotation: pageRotation,
     })
+
+    setPdfJsScaleVars(viewport)
 
     const canvas = root.value?.querySelector('canvas') as HTMLCanvasElement
     const textLayerDiv = root.value?.querySelector(
@@ -261,8 +307,6 @@ const renderPage = async () => {
     // Render text layer if enabled
     if (props.textLayer && textLayerDiv) {
       const textLayerViewport = viewport.clone({ dontFlip: true })
-      const { scale } = viewport
-      textLayerDiv.style.setProperty('--total-scale-factor', `${scale}`)
       const textLayerRenderTask = new TextLayer({
         container: textLayerDiv,
         textContentSource: await page.getTextContent(),
@@ -285,7 +329,7 @@ const renderPage = async () => {
         div: annotationLayerDiv,
         page,
         structTreeLayer: null,
-        viewport,
+        viewport: annotationLayerViewport,
         commentManager: null,
         linkService: injectedLinkService,
         annotationStorage: null,
@@ -310,7 +354,7 @@ const renderPage = async () => {
       renderFormFields(
         formLayerDiv,
         annotations,
-        viewport,
+        annotationLayerViewport,
         annotationLayerViewport
       )
     }
@@ -409,6 +453,7 @@ const setup = async () => {
       return
     }
     const ratio = isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
+    pageRatio.value = ratio
     const [actualWidth, actualHeight] = getPageDimensions(ratio)
 
     // Update pageWidth and pageHeight
@@ -433,6 +478,31 @@ const setup = async () => {
     if (root.value) {
       observer.observe(root.value)
     }
+
+    // Observe size changes to keep viewport scale in sync.
+    resizeObserver?.disconnect()
+    resizeObserver = new ResizeObserver(() => {
+      if (resizeRaf != null) {
+        return
+      }
+      resizeRaf = window.requestAnimationFrame(() => {
+        resizeRaf = null
+
+        if (pageRatio.value) {
+          const [w, h] = getPageDimensions(pageRatio.value)
+          if (w && h) {
+            pageWidth.value = w
+            pageHeight.value = h
+          }
+        }
+
+        if (shouldRender.value) {
+          cleanup()
+          renderPage()
+        }
+      })
+    })
+    resizeObserver.observe(props.parentRoot ?? root.value)
   } catch (error) {
     console.error('Failed to get page for dimensions:', error)
   }
@@ -442,6 +512,16 @@ onBeforeUnmount(() => {
   if (observer && root.value) {
     observer.unobserve(root.value)
     observer.disconnect()
+  }
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  if (resizeRaf != null) {
+    cancelAnimationFrame(resizeRaf)
+    resizeRaf = null
+  }
+  if (pendingRetryRaf != null) {
+    cancelAnimationFrame(pendingRetryRaf)
+    pendingRetryRaf = null
   }
   cleanup()
 })

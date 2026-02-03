@@ -38,7 +38,7 @@
     "format": "prettier . --write --ignore-path .gitignore"
   },
   "dependencies": {
-    "pdfjs-dist": "^5.4.296",
+    "pdfjs-dist": "^5.4.624",
     "url": "^0.11.4"
   },
   "devDependencies": {

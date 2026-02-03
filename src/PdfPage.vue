@@ -10,7 +10,11 @@ import {
 } from 'vue'
 import { AnnotationLayer, TextLayer } from 'pdfjs-dist'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
-import { emptyElement, releaseCanvas } from './utils'
+import {
+  computeTextLayerTotalScaleFactor,
+  emptyElement,
+  releaseCanvas,
+} from './utils'
 import type { PDFLinkService } from 'pdfjs-dist/web/pdf_viewer.mjs'
 
 interface Props {
@@ -48,11 +52,63 @@ const pageHeight = ref<number>()
 const root = shallowRef<HTMLElement | null>(null)
 const isVisible = ref(false)
 let observer: IntersectionObserver | null = null
+let textLayerResizeObserver: ResizeObserver | null = null
+let textLayerCorrectionRaf: number | null = null
 let renderingTask: { promise: Promise<void>; cancel: () => void } | null = null
 let page: PDFPageProxy | null = null
+let lastTextLayerViewport: {
+  scale: number
+  width: number
+  userUnit: number
+} | null = null
 
 // Inject the linkService from the parent component
 const injectedLinkService = inject('linkService') as PDFLinkService
+
+const applyTextLayerScaleCorrection = ({
+  viewport,
+  canvas,
+  textLayerDiv,
+}: {
+  viewport: { scale: number; width: number; userUnit?: number }
+  canvas: HTMLCanvasElement
+  textLayerDiv: HTMLElement
+}) => {
+  const canvasCssWidth = canvas.getBoundingClientRect().width
+  const effectiveScale = computeTextLayerTotalScaleFactor({
+    baseScale: viewport.scale,
+    viewportWidth: viewport.width,
+    canvasCssWidth,
+    userUnit: viewport.userUnit,
+  })
+  textLayerDiv.style.setProperty('--total-scale-factor', `${effectiveScale}`)
+}
+
+const scheduleTextLayerCorrectionUpdate = () => {
+  if (textLayerCorrectionRaf != null) {
+    return
+  }
+  textLayerCorrectionRaf = window.requestAnimationFrame(() => {
+    textLayerCorrectionRaf = null
+    if (!lastTextLayerViewport || !root.value) {
+      return
+    }
+    const canvas = root.value.querySelector(
+      'canvas'
+    ) as HTMLCanvasElement | null
+    const textLayerDiv = root.value.querySelector(
+      '.textLayer'
+    ) as HTMLDivElement | null
+    if (!canvas || !textLayerDiv) {
+      return
+    }
+    applyTextLayerScaleCorrection({
+      viewport: lastTextLayerViewport,
+      canvas,
+      textLayerDiv,
+    })
+  })
+}
 
 // Function to get page dimensions
 const getPageDimensions = (ratio: number): [number, number] => {
@@ -261,8 +317,33 @@ const renderPage = async () => {
     // Render text layer if enabled
     if (props.textLayer && textLayerDiv) {
       const textLayerViewport = viewport.clone({ dontFlip: true })
-      const { scale } = viewport
-      textLayerDiv.style.setProperty('--total-scale-factor', `${scale}`)
+      lastTextLayerViewport = {
+        scale: viewport.scale,
+        width: viewport.width,
+        // pdf.js may omit this on some viewport-like objects; default to 1.
+        userUnit: (viewport as unknown as { userUnit?: number }).userUnit || 1,
+      }
+
+      // Base case: no correction (full width)
+      textLayerDiv.style.setProperty(
+        '--total-scale-factor',
+        `${lastTextLayerViewport.scale}`
+      )
+      // Apply correction immediately, and again next frame to catch late layout
+      applyTextLayerScaleCorrection({
+        viewport: lastTextLayerViewport,
+        canvas,
+        textLayerDiv,
+      })
+      scheduleTextLayerCorrectionUpdate()
+
+      // Keep correction in sync with responsive layout width changes (no rerender)
+      textLayerResizeObserver?.disconnect()
+      textLayerResizeObserver = new ResizeObserver(() => {
+        scheduleTextLayerCorrectionUpdate()
+      })
+      textLayerResizeObserver.observe(root.value!)
+
       const textLayerRenderTask = new TextLayer({
         container: textLayerDiv,
         textContentSource: await page.getTextContent(),
@@ -346,6 +427,13 @@ const cleanup = () => {
   if (renderingTask) {
     renderingTask.cancel()
     renderingTask = null
+  }
+  textLayerResizeObserver?.disconnect()
+  textLayerResizeObserver = null
+  lastTextLayerViewport = null
+  if (textLayerCorrectionRaf != null) {
+    cancelAnimationFrame(textLayerCorrectionRaf)
+    textLayerCorrectionRaf = null
   }
 
   // Release canvas

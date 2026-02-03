@@ -48,23 +48,11 @@ const pageHeight = ref<number>()
 const root = shallowRef<HTMLElement | null>(null)
 const isVisible = ref(false)
 let observer: IntersectionObserver | null = null
-let resizeObserver: ResizeObserver | null = null
-let resizeRaf: number | null = null
-let lastLayoutWidth = 0
 let renderingTask: { promise: Promise<void>; cancel: () => void } | null = null
 let page: PDFPageProxy | null = null
 
 // Inject the linkService from the parent component
 const injectedLinkService = inject('linkService') as PDFLinkService
-
-const getLayoutWidth = () => {
-  // Prefer explicit prop width; otherwise use the actual rendered page width.
-  // This matters when the page is constrained (e.g. auto-fit on small screens)
-  // while the parent container remains wider.
-  return (
-    props.width ?? root.value?.clientWidth ?? props.parentRoot?.clientWidth ?? 0
-  )
-}
 
 // Function to get page dimensions
 const getPageDimensions = (ratio: number): [number, number] => {
@@ -75,7 +63,7 @@ const getPageDimensions = (ratio: number): [number, number] => {
     height = props.height
     width = height / ratio
   } else {
-    width = getLayoutWidth()
+    width = props.width ?? props.parentRoot!.clientWidth
     height = width * ratio
   }
 
@@ -210,7 +198,6 @@ const renderPage = async () => {
     // Update pageWidth and pageHeight
     pageWidth.value = actualWidth
     pageHeight.value = actualHeight
-    lastLayoutWidth = actualWidth
 
     //const cssWidth = `${Math.floor(actualWidth)}px`
     //const cssHeight = `${Math.floor(actualHeight)}px`
@@ -446,29 +433,6 @@ const setup = async () => {
     if (root.value) {
       observer.observe(root.value)
     }
-
-    // Keep rendering scale in sync with responsive layout changes.
-    resizeObserver?.disconnect()
-    resizeObserver = new ResizeObserver(() => {
-      if (resizeRaf != null) {
-        return
-      }
-      resizeRaf = window.requestAnimationFrame(() => {
-        resizeRaf = null
-        const nextWidth = getLayoutWidth()
-        if (!nextWidth) {
-          return
-        }
-        if (Math.abs(nextWidth - lastLayoutWidth) < 1) {
-          return
-        }
-        if (shouldRender.value) {
-          cleanup()
-          renderPage()
-        }
-      })
-    })
-    resizeObserver.observe(root.value)
   } catch (error) {
     console.error('Failed to get page for dimensions:', error)
   }
@@ -478,12 +442,6 @@ onBeforeUnmount(() => {
   if (observer && root.value) {
     observer.unobserve(root.value)
     observer.disconnect()
-  }
-  resizeObserver?.disconnect()
-  resizeObserver = null
-  if (resizeRaf != null) {
-    cancelAnimationFrame(resizeRaf)
-    resizeRaf = null
   }
   cleanup()
 })

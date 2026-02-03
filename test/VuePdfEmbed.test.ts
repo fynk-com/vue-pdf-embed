@@ -5,37 +5,23 @@ import VuePdfEmbed from '../src/VuePdfEmbed.vue'
 
 HTMLCanvasElement.prototype.getContext = () => null
 
-vi.mock('pdfjs-dist', () => ({
+vi.mock('pdfjs-dist/build/pdf.mjs', () => ({
   GlobalWorkerOptions: {},
-  PasswordResponses: { INCORRECT_PASSWORD: 1 },
-  VerbosityLevel: { ERRORS: 0 },
   getDocument: () => ({
-    promise: Promise.resolve({
+    promise: {
       numPages: 3,
-      getPage: async () => ({
-        view: [0, 0, 600, 800],
-        rotate: 0,
+      getPage: () => ({
+        view: [],
         getViewport: () => ({
-          scale: 1,
           clone: () => ({}),
         }),
-        render: () => ({
-          promise: Promise.resolve(),
-          cancel: () => {},
-        }),
-        cleanup: () => {},
+        render: () => ({}),
       }),
-    }),
-    destroy: () => {},
+    },
   }),
 }))
 
-vi.mock('pdfjs-dist/web/pdf_viewer.mjs', () => ({
-  PDFLinkService: class {
-    setDocument() {}
-    setViewer() {}
-  },
-}))
+vi.mock('pdfjs-dist/web/pdf_viewer.mjs', () => ({}))
 
 test('sets correct data', async () => {
   const wrapper = mount(VuePdfEmbed, {

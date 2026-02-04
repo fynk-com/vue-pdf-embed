@@ -50,6 +50,8 @@ const isVisible = ref(false)
 let observer: IntersectionObserver | null = null
 let renderingTask: { promise: Promise<void>; cancel: () => void } | null = null
 let page: PDFPageProxy | null = null
+let renderToken = 0
+let isDestroyed = false
 
 // Inject the linkService from the parent component
 const injectedLinkService = inject('linkService') as PDFLinkService
@@ -177,11 +179,16 @@ const renderPage = async () => {
     return
   }
 
+  const myToken = ++renderToken
+  const isStale = () => isDestroyed || myToken !== renderToken
+
   try {
-    page = await props.doc.getPage(props.pageNum)
-    if (!page) {
+    const localPage = await props.doc.getPage(props.pageNum)
+    if (isStale()) {
       return
     }
+    page = localPage
+    if (!localPage) return
     const pageRotation = ((props.rotation % 360) + page.rotate) % 360
     // Determine if the page is transposed
     const isTransposed = !!((pageRotation / 90) % 2)
@@ -263,9 +270,13 @@ const renderPage = async () => {
       const textLayerViewport = viewport.clone({ dontFlip: true })
       const { scale } = viewport
       textLayerDiv.style.setProperty('--total-scale-factor', `${scale}`)
+      const textContent = await localPage.getTextContent()
+      if (isStale()) {
+        return
+      }
       const textLayerRenderTask = new TextLayer({
         container: textLayerDiv,
-        textContentSource: await page.getTextContent(),
+        textContentSource: textContent,
         viewport: textLayerViewport,
       }).render()
       renderTasks.push(textLayerRenderTask)
@@ -274,18 +285,18 @@ const renderPage = async () => {
     // Render annotation layer if enabled
     if (props.annotationLayer && annotationLayerDiv) {
       const annotationLayerViewport = viewport.clone({ dontFlip: true })
-      if (!page) {
+      const annotations = await localPage.getAnnotations({ intent: 'display' })
+      if (isStale()) {
         return
       }
-      const annotations = await page.getAnnotations({ intent: 'display' })
       const annotationLayer = new AnnotationLayer({
         accessibilityManager: null,
         annotationCanvasMap: null,
         annotationEditorUIManager: null,
         div: annotationLayerDiv,
-        page,
+        page: localPage,
         structTreeLayer: null,
-        viewport,
+        viewport: annotationLayerViewport,
         commentManager: null,
         linkService: injectedLinkService,
         annotationStorage: null,
@@ -295,7 +306,7 @@ const renderPage = async () => {
         div: annotationLayerDiv,
         imageResourcesPath: props.imageResourcesPath,
         linkService: injectedLinkService,
-        page,
+        page: localPage,
         renderForms: false,
         viewport: annotationLayerViewport,
       })
@@ -317,13 +328,22 @@ const renderPage = async () => {
 
     try {
       await Promise.all(renderTasks)
+      if (isStale()) {
+        return
+      }
       isRendered.value = true
       emit('rendered')
     } catch (error) {
+      if (isStale()) {
+        return
+      }
       console.error('Failed to render page:', error)
       handleRenderError(error as Error)
     }
   } catch (error) {
+    if (isStale()) {
+      return
+    }
     console.error('Failed to render page:', error)
     emit('rendering-failed', error as Error)
   }
@@ -342,6 +362,7 @@ const handleRenderError = (error: Error) => {
 
 // Function to clean up resources when the page is not rendered
 const cleanup = () => {
+  renderToken++
   isRendered.value = false
   if (renderingTask) {
     renderingTask.cancel()
@@ -367,10 +388,7 @@ const cleanup = () => {
   }
 
   // Clean up page resources
-  if (page) {
-    page.cleanup()
-    page = null
-  }
+  page = null
 }
 
 onMounted(async () => {
@@ -439,6 +457,7 @@ const setup = async () => {
 }
 
 onBeforeUnmount(() => {
+  isDestroyed = true
   if (observer && root.value) {
     observer.unobserve(root.value)
     observer.disconnect()

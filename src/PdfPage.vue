@@ -492,6 +492,9 @@ const setup = async () => {
     resizeObserver = new ResizeObserver(() => {
       // Only relevant when width is derived from container width.
       const usesContainerWidth = !props.width && !props.height
+      console.log('usesContainerWidth', usesContainerWidth)
+      console.log('pageRatio.value', pageRatio.value)
+      console.log('shouldRender.value', shouldRender.value)
       if (!usesContainerWidth) {
         return
       }

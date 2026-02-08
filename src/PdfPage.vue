@@ -48,13 +48,34 @@ const pageHeight = ref<number>()
 const root = shallowRef<HTMLElement | null>(null)
 const isVisible = ref(false)
 let observer: IntersectionObserver | null = null
+let resizeObserver: ResizeObserver | null = null
+let resizeRaf: number | null = null
+let pendingRetryRaf: number | null = null
 let renderingTask: { promise: Promise<void>; cancel: () => void } | null = null
 let page: PDFPageProxy | null = null
 let renderToken = 0
 let isDestroyed = false
+const pageRatio = ref<number | null>(null)
 
 // Inject the linkService from the parent component
 const injectedLinkService = inject('linkService') as PDFLinkService
+
+const getContainerElement = (): HTMLElement | null => {
+  return props.parentRoot ?? root.value
+}
+
+const getContainerWidth = (): number => {
+  const el = getContainerElement()
+  if (!el) {
+    return 0
+  }
+  // Prefer layout width; fall back to DOMRect for late-mount/layout cases.
+  const width = el.clientWidth
+  if (width > 0) {
+    return width
+  }
+  return el.getBoundingClientRect().width
+}
 
 // Function to get page dimensions
 const getPageDimensions = (ratio: number): [number, number] => {
@@ -65,7 +86,7 @@ const getPageDimensions = (ratio: number): [number, number] => {
     height = props.height
     width = height / ratio
   } else {
-    width = props.width ?? props.parentRoot!.clientWidth
+    width = props.width ?? getContainerWidth()
     height = width * ratio
   }
 
@@ -175,7 +196,7 @@ const isRendered = ref(false)
 
 // Function to render the page
 const renderPage = async () => {
-  if (!props.doc || !props.parentRoot) {
+  if (!props.doc) {
     return
   }
 
@@ -198,9 +219,22 @@ const renderPage = async () => {
       return
     }
     // Calculate the actual width and height of the page
-    const [actualWidth, actualHeight] = getPageDimensions(
-      isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
-    )
+    const ratio = isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
+    const [actualWidth, actualHeight] = getPageDimensions(ratio)
+    if (!actualWidth || !actualHeight) {
+      // Late-mount/layout: retry next frame to avoid capturing a bogus scale.
+      if (pendingRetryRaf == null) {
+        pendingRetryRaf = window.requestAnimationFrame(() => {
+          pendingRetryRaf = null
+          if (shouldRender.value) {
+            cleanup()
+            renderPage()
+          }
+        })
+      }
+      return
+    }
+    pageRatio.value = ratio
 
     // Update pageWidth and pageHeight
     pageWidth.value = actualWidth
@@ -427,6 +461,7 @@ const setup = async () => {
       return
     }
     const ratio = isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
+    pageRatio.value = ratio
     const [actualWidth, actualHeight] = getPageDimensions(ratio)
 
     // Update pageWidth and pageHeight
@@ -451,6 +486,39 @@ const setup = async () => {
     if (root.value) {
       observer.observe(root.value)
     }
+
+    // Observe size changes to keep viewport scale in sync with container width.
+    resizeObserver?.disconnect()
+    resizeObserver = new ResizeObserver(() => {
+      // Only relevant when width is derived from container width.
+      const usesContainerWidth = !props.width && !props.height
+      if (!usesContainerWidth) {
+        return
+      }
+      if (resizeRaf != null) {
+        return
+      }
+      resizeRaf = window.requestAnimationFrame(() => {
+        resizeRaf = null
+
+        if (pageRatio.value) {
+          const [w, h] = getPageDimensions(pageRatio.value)
+          if (w && h) {
+            pageWidth.value = w
+            pageHeight.value = h
+          }
+        }
+
+        if (shouldRender.value) {
+          cleanup()
+          renderPage()
+        }
+      })
+    })
+    const resizeEl = getContainerElement()
+    if (resizeEl) {
+      resizeObserver.observe(resizeEl)
+    }
   } catch (error) {
     console.error('Failed to get page for dimensions:', error)
   }
@@ -461,6 +529,16 @@ onBeforeUnmount(() => {
   if (observer && root.value) {
     observer.unobserve(root.value)
     observer.disconnect()
+  }
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  if (resizeRaf != null) {
+    cancelAnimationFrame(resizeRaf)
+    resizeRaf = null
+  }
+  if (pendingRetryRaf != null) {
+    cancelAnimationFrame(pendingRetryRaf)
+    pendingRetryRaf = null
   }
   cleanup()
 })

@@ -43,49 +43,6 @@ const emit = defineEmits([
   'visibility-changed',
 ])
 
-// Debug logging is intentionally opt-in.
-// Enable from a consuming app via any of:
-//   - window.__VUE_PDF_EMBED_DEBUG__ = true
-//   - localStorage.setItem('vue-pdf-embed:debug', '1')
-//   - URL contains ?vue-pdf-embed-debug=1
-const isEnabledLogging = false
-const getGlobalDebugFlag = (): boolean => {
-  try {
-    const g = globalThis as unknown as {
-      __VUE_PDF_EMBED_DEBUG__?: boolean
-      location?: Location
-      localStorage?: Storage
-    }
-    if (g.__VUE_PDF_EMBED_DEBUG__ === true) return true
-    if (g.location?.search?.includes('vue-pdf-embed-debug=1')) return true
-    if (g.localStorage?.getItem?.('vue-pdf-embed:debug') === '1') return true
-  } catch {
-    // ignore (SSR/test environments)
-  }
-  return false
-}
-
-const debugEnabled = () => isEnabledLogging || getGlobalDebugFlag()
-const debugPrefix = computed(
-  () => `[vue-pdf-embed][PdfPage id=${props.id} page=${props.pageNum}]`
-)
-const debugLog = (...args: unknown[]) => {
-  if (!debugEnabled()) return
-  // eslint-disable-next-line no-console
-  console.log(debugPrefix.value, ...args)
-}
-const debugGroup = (title: string, details?: Record<string, unknown>) => {
-  if (!debugEnabled()) return
-  // eslint-disable-next-line no-console
-  console.groupCollapsed(`${debugPrefix.value} ${title}`)
-  if (details) {
-    // eslint-disable-next-line no-console
-    console.log(details)
-  }
-  // eslint-disable-next-line no-console
-  console.groupEnd()
-}
-
 const pageWidth = ref<number>()
 const pageHeight = ref<number>()
 
@@ -106,29 +63,23 @@ const pageRatio = ref<number | null>(null)
 const injectedLinkService = inject('linkService') as PDFLinkService
 
 const getContainerElement = (): HTMLElement | null => {
-  // Prefer a parent/container element so we can react to layout changes even if
-  // the page element itself is temporarily constrained (e.g. mounted in a hidden modal).
-  return props.parentRoot ?? root.value?.parentElement ?? root.value
+  return props.parentRoot ?? root.value
 }
 
 const getContainerWidth = (): number => {
   const el = getContainerElement()
   if (!el) {
-    debugLog('getContainerWidth: no container element')
     return 0
   }
   // Prefer layout width; fall back to DOMRect for late-mount/layout cases.
   const width = el.clientWidth
   if (width > 0) {
-    debugLog('getContainerWidth: clientWidth', { width })
     return width
   }
-  const rectWidth = el.getBoundingClientRect().width
-  debugLog('getContainerWidth: rectWidth fallback', { rectWidth })
-  return rectWidth
+  return el.getBoundingClientRect().width
 }
 
-// Function to get page dimensions
+// Function to get page dimensions.
 const getPageDimensions = (ratio: number): [number, number] => {
   let width: number
   let height: number
@@ -144,14 +95,8 @@ const getPageDimensions = (ratio: number): [number, number] => {
     if (props.width != null) {
       width =
         containerWidth > 0 ? Math.min(props.width, containerWidth) : props.width
-      debugLog('getPageDimensions: width capped', {
-        widthProp: props.width,
-        containerWidth,
-        effectiveWidth: width,
-      })
     } else {
       width = containerWidth
-      debugLog('getPageDimensions: width from container', { containerWidth })
     }
     height = width * ratio
   }
@@ -544,28 +489,15 @@ const renderTextLayerOnly = async () => {
 // Function to render the page
 const renderPage = async () => {
   if (!props.doc) {
-    debugLog('renderPage: no doc')
     return
   }
 
   const myToken = ++renderToken
   const isStale = () => isDestroyed || myToken !== renderToken
 
-  debugGroup('renderPage:start', {
-    token: myToken,
-    shouldRender: shouldRender.value,
-    containerWidth: getContainerWidth(),
-    widthProp: props.width,
-    heightProp: props.height,
-    scaleProp: props.scale,
-    rotationProp: props.rotation,
-    pagesToRenderCount: props.pagesToRender?.length,
-  })
-
   try {
     const localPage = await props.doc.getPage(props.pageNum)
     if (isStale()) {
-      debugLog('renderPage: stale after getPage', { token: myToken })
       return
     }
     page = localPage
@@ -582,29 +514,14 @@ const renderPage = async () => {
     const ratio = isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
     const [actualWidth, actualHeight] = getPageDimensions(ratio)
     if (!actualWidth || !actualHeight) {
-      // Late-mount/layout: schedule a single retry next frame.
-      // If still 0-width (e.g. modal closed), rely on ResizeObserver (or a later prop change)
-      // to trigger the next render attempt rather than looping every frame.
-      debugLog('renderPage: missing dimensions, will retry next frame', {
-        ratio,
-        actualWidth,
-        actualHeight,
-        containerWidth: getContainerWidth(),
-      })
       if (pendingRetryRaf == null) {
         pendingRetryRaf = window.requestAnimationFrame(() => {
           pendingRetryRaf = null
           if (!shouldRender.value) {
-            debugLog('renderPage: retry aborted (shouldRender=false)')
             return
           }
-          if (getContainerWidth() > 0) {
-            debugLog('renderPage: retrying now (containerWidth>0)')
-            cleanup()
-            renderPage()
-          } else {
-            debugLog('renderPage: retry skipped (containerWidth still 0)')
-          }
+          cleanup()
+          renderPage()
         })
       }
       return
@@ -660,7 +577,6 @@ const renderPage = async () => {
 
     // Cancel any previous rendering task
     if (renderingTask) {
-      debugLog('renderPage: cancel previous renderingTask')
       renderingTask.cancel()
       renderingTask = null
     }
@@ -752,15 +668,12 @@ const renderPage = async () => {
     try {
       await Promise.all(renderTasks)
       if (isStale()) {
-        debugLog('renderPage: stale after Promise.all', { token: myToken })
         return
       }
       isRendered.value = true
       emit('rendered')
-      debugLog('renderPage: done')
     } catch (error) {
       if (isStale()) {
-        debugLog('renderPage: stale after error', { token: myToken })
         return
       }
       console.error('Failed to render page:', error)
@@ -779,7 +692,7 @@ const renderPage = async () => {
 const handleRenderError = (error: Error) => {
   if (error.name === 'RenderingCancelledException') {
     // Rendering was cancelled; no need to do anything
-    debugLog('Rendering cancelled:', error.message)
+    // no-op
   } else {
     // Emit rendering-failed event for other errors
     emit('rendering-failed', error)
@@ -819,11 +732,6 @@ const cleanup = () => {
 }
 
 onMounted(async () => {
-  debugGroup('mounted', {
-    hasDoc: !!props.doc,
-    parentRootPresent: !!props.parentRoot,
-    containerWidth: getContainerWidth(),
-  })
   if (!props.doc) {
     // Wait for props.doc to be available
     const unwatch = watch(
@@ -831,7 +739,6 @@ onMounted(async () => {
       (newDoc) => {
         if (newDoc) {
           unwatch()
-          debugLog('doc became available; running setup()')
           setup()
         }
       }
@@ -843,24 +750,13 @@ onMounted(async () => {
 
 const setup = async () => {
   if (!props.doc || !root.value) {
-    debugLog('setup: missing doc or root', {
-      hasDoc: !!props.doc,
-      hasRoot: !!root.value,
-    })
     return
   }
 
   // Get the page to calculate dimensions
   try {
-    debugGroup('setup:start', {
-      containerWidth: getContainerWidth(),
-      widthProp: props.width,
-      heightProp: props.height,
-      parentRootPresent: !!props.parentRoot,
-    })
     page = await props.doc.getPage(props.pageNum)
     if (!page) {
-      debugLog('setup: getPage returned null')
       return
     }
     const pageRotation = ((props.rotation % 360) + page.rotate) % 360
@@ -874,22 +770,9 @@ const setup = async () => {
     pageRatio.value = ratio
     const [actualWidth, actualHeight] = getPageDimensions(ratio)
 
-    // Update pageWidth/pageHeight only if we have a real container width.
-    // If mounted in a hidden container (width = 0), setting pageWidth = 0 would
-    // apply maxWidth: 0px in the template and can prevent future resizes from being observed.
-    if (actualWidth > 0 && actualHeight > 0) {
-      pageWidth.value = actualWidth
-      pageHeight.value = actualHeight
-    } else {
-      pageWidth.value = undefined
-      pageHeight.value = undefined
-    }
-    debugLog('setup: initial dimensions', {
-      ratio,
-      actualWidth,
-      actualHeight,
-      containerWidth: getContainerWidth(),
-    })
+    // Update pageWidth and pageHeight
+    pageWidth.value = actualWidth
+    pageHeight.value = actualHeight
 
     // Now set up the observer
     observer = new IntersectionObserver(
@@ -897,14 +780,6 @@ const setup = async () => {
         const entry = entries[0]
         const wasVisible = isVisible.value
         isVisible.value = entry.isIntersecting
-        debugLog('IntersectionObserver', {
-          isIntersecting: entry.isIntersecting,
-          intersectionRatio: entry.intersectionRatio,
-          boundingClientRect: {
-            w: entry.boundingClientRect.width,
-            h: entry.boundingClientRect.height,
-          },
-        })
         if (isVisible.value !== wasVisible) {
           emit('visibility-changed', {
             pageNum: props.pageNum,
@@ -928,10 +803,6 @@ const setup = async () => {
       // It's false only when height is explicitly driving layout (height provided, width not).
       const usesContainerWidth = !(props.height && !props.width)
       if (!usesContainerWidth) {
-        debugLog('ResizeObserver: skipped (height-driven sizing)', {
-          widthProp: props.width,
-          heightProp: props.height,
-        })
         return
       }
       if (resizeRaf != null) {
@@ -940,18 +811,11 @@ const setup = async () => {
       resizeRaf = window.requestAnimationFrame(() => {
         resizeRaf = null
 
-        debugLog('ResizeObserver: tick', {
-          containerWidth: getContainerWidth(),
-          pageRatio: pageRatio.value,
-          shouldRender: shouldRender.value,
-        })
-
         if (pageRatio.value) {
           const [w, h] = getPageDimensions(pageRatio.value)
           if (w && h) {
             pageWidth.value = w
             pageHeight.value = h
-            debugLog('ResizeObserver: updated page dims', { w, h })
           }
         }
 
@@ -963,82 +827,12 @@ const setup = async () => {
     })
     const resizeEl = getContainerElement()
     if (resizeEl) {
-      debugLog('ResizeObserver: observing element', {
-        tag: resizeEl.tagName,
-        className: resizeEl.className,
-        id: resizeEl.id,
-        clientWidth: resizeEl.clientWidth,
-        rectWidth: resizeEl.getBoundingClientRect().width,
-      })
       resizeObserver.observe(resizeEl)
     }
   } catch (error) {
     console.error('Failed to get page for dimensions:', error)
   }
 }
-
-// If the container element arrives/changes after mount (e.g. parent template ref becomes available),
-// rebind the ResizeObserver so auto-fit can start reacting immediately.
-watch(
-  () => props.parentRoot,
-  () => {
-    const usesContainerWidth = !(props.height && !props.width)
-    if (!usesContainerWidth) {
-      debugLog('ResizeObserver(rebind): skipped (height-driven sizing)', {
-        widthProp: props.width,
-        heightProp: props.height,
-      })
-      return
-    }
-
-    const resizeEl = getContainerElement()
-    if (!resizeEl) {
-      return
-    }
-
-    debugLog('parentRoot changed; rebinding ResizeObserver', {
-      parentRootPresent: !!props.parentRoot,
-      observing: {
-        tag: resizeEl.tagName,
-        className: resizeEl.className,
-        id: resizeEl.id,
-        clientWidth: resizeEl.clientWidth,
-        rectWidth: resizeEl.getBoundingClientRect().width,
-      },
-    })
-
-    resizeObserver?.disconnect()
-    resizeObserver = new ResizeObserver(() => {
-      if (resizeRaf != null) {
-        return
-      }
-      resizeRaf = window.requestAnimationFrame(() => {
-        resizeRaf = null
-
-        debugLog('ResizeObserver(rebound): tick', {
-          containerWidth: getContainerWidth(),
-          pageRatio: pageRatio.value,
-          shouldRender: shouldRender.value,
-        })
-
-        if (pageRatio.value) {
-          const [w, h] = getPageDimensions(pageRatio.value)
-          if (w && h) {
-            pageWidth.value = w
-            pageHeight.value = h
-            debugLog('ResizeObserver(rebound): updated page dims', { w, h })
-          }
-        }
-
-        if (shouldRender.value) {
-          cleanup()
-          renderPage()
-        }
-      })
-    })
-    resizeObserver.observe(resizeEl)
-  }
-)
 
 onBeforeUnmount(() => {
   isDestroyed = true

@@ -137,7 +137,22 @@ const getPageDimensions = (ratio: number): [number, number] => {
     height = props.height
     width = height / ratio
   } else {
-    width = props.width ?? getContainerWidth()
+    const containerWidth = getContainerWidth()
+    // Treat `props.width` as a max width cap (the template uses width: 100% + maxWidth).
+    // If the container is narrower, compute the viewport at the container width to avoid
+    // relying on CSS downscaling (which breaks scale-sensitive layers).
+    if (props.width != null) {
+      width =
+        containerWidth > 0 ? Math.min(props.width, containerWidth) : props.width
+      debugLog('getPageDimensions: width capped', {
+        widthProp: props.width,
+        containerWidth,
+        effectiveWidth: width,
+      })
+    } else {
+      width = containerWidth
+      debugLog('getPageDimensions: width from container', { containerWidth })
+    }
     height = width * ratio
   }
 
@@ -906,9 +921,17 @@ const setup = async () => {
     // Observe size changes to keep viewport scale in sync with container width.
     resizeObserver?.disconnect()
     resizeObserver = new ResizeObserver(() => {
-      // Only relevant when width is derived from container width.
-      const usesContainerWidth = !props.width && !props.height
+      // Only relevant when the effective width depends on container width.
+      // This is true for:
+      // - no explicit sizing props
+      // - width provided (treated as max width cap)
+      // It's false only when height is explicitly driving layout (height provided, width not).
+      const usesContainerWidth = !(props.height && !props.width)
       if (!usesContainerWidth) {
+        debugLog('ResizeObserver: skipped (height-driven sizing)', {
+          widthProp: props.width,
+          heightProp: props.height,
+        })
         return
       }
       if (resizeRaf != null) {
@@ -959,8 +982,12 @@ const setup = async () => {
 watch(
   () => props.parentRoot,
   () => {
-    const usesContainerWidth = !props.width && !props.height
+    const usesContainerWidth = !(props.height && !props.width)
     if (!usesContainerWidth) {
+      debugLog('ResizeObserver(rebind): skipped (height-driven sizing)', {
+        widthProp: props.width,
+        heightProp: props.height,
+      })
       return
     }
 

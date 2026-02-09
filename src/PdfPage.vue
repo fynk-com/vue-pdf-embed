@@ -7,11 +7,13 @@ import {
   inject,
   computed,
   shallowRef,
+  nextTick,
 } from 'vue'
 import { AnnotationLayer, TextLayer } from 'pdfjs-dist'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { emptyElement, releaseCanvas } from './utils'
 import type { PDFLinkService } from 'pdfjs-dist/web/pdf_viewer.mjs'
+import type { TextractBlocksApiResponse, TextractBoundingBox } from './types'
 
 interface Props {
   id: string
@@ -22,6 +24,7 @@ interface Props {
   annotationLayer: boolean
   formLayer: boolean
   textLayer: boolean
+  textractBlocks?: TextractBlocksApiResponse | null
   imageResourcesPath: string
   width?: number
   height?: number
@@ -54,6 +57,7 @@ let pendingRetryRaf: number | null = null
 let renderingTask: { promise: Promise<void>; cancel: () => void } | null = null
 let page: PDFPageProxy | null = null
 let renderToken = 0
+let textLayerRenderToken = 0
 let isDestroyed = false
 const pageRatio = ref<number | null>(null)
 
@@ -194,6 +198,165 @@ const renderFormFields = (
 
 const isRendered = ref(false)
 
+const normalizeRotation = (rotation: number): 0 | 90 | 180 | 270 => {
+  const r = ((rotation % 360) + 360) % 360
+  if (r === 90 || r === 180 || r === 270) return r
+  return 0
+}
+
+const mapTextractBBoxForRotation = (
+  bbox: TextractBoundingBox,
+  rotation: number
+): TextractBoundingBox => {
+  const rot = normalizeRotation(rotation)
+  switch (rot) {
+    case 90:
+      return {
+        Left: 1 - (bbox.Top + bbox.Height),
+        Top: bbox.Left,
+        Width: bbox.Height,
+        Height: bbox.Width,
+      }
+    case 180:
+      return {
+        Left: 1 - (bbox.Left + bbox.Width),
+        Top: 1 - (bbox.Top + bbox.Height),
+        Width: bbox.Width,
+        Height: bbox.Height,
+      }
+    case 270:
+      return {
+        Left: bbox.Top,
+        Top: 1 - (bbox.Left + bbox.Width),
+        Width: bbox.Height,
+        Height: bbox.Width,
+      }
+    default:
+      return bbox
+  }
+}
+
+const renderTextractTextLayer = ({
+  container,
+  textractBlocks,
+  pageNum,
+  rotation,
+}: {
+  container: HTMLElement
+  textractBlocks: TextractBlocksApiResponse
+  pageNum: number
+  rotation: number
+}) => {
+  emptyElement(container)
+
+  const blocks = textractBlocks?.textract_blocks ?? []
+  if (!Array.isArray(blocks) || blocks.length === 0) {
+    return
+  }
+
+  const containerRect = container.getBoundingClientRect()
+  const containerHeightPx = containerRect.height || pageHeight.value || 0
+  const fallbackFontPx = 10
+
+  for (const block of blocks) {
+    if (block?.BlockType !== 'LINE') continue
+    if (block?.Page !== pageNum) continue
+    const text = block?.Text
+    const bbox = block?.Geometry?.BoundingBox
+    if (!text || !bbox) continue
+
+    const mapped = mapTextractBBoxForRotation(bbox, rotation)
+
+    const el = document.createElement('span')
+    el.textContent = text
+    el.style.position = 'absolute'
+    el.style.left = `${mapped.Left * 100}%`
+    el.style.top = `${mapped.Top * 100}%`
+    el.style.width = `${mapped.Width * 100}%`
+    el.style.height = `${mapped.Height * 100}%`
+
+    // Keep the text layer selectable but not visually intrusive.
+    el.style.color = 'transparent'
+    el.style.whiteSpace = 'pre'
+    el.style.transformOrigin = '0 0'
+    el.style.lineHeight = '1'
+
+    const fontPx =
+      containerHeightPx > 0
+        ? Math.max(1, mapped.Height * containerHeightPx)
+        : fallbackFontPx
+    el.style.fontSize = `${fontPx}px`
+
+    container.appendChild(el)
+  }
+}
+
+const renderTextLayerOnly = async () => {
+  if (!props.doc || !root.value) return
+  if (!props.textLayer) return
+
+  const myToken = ++textLayerRenderToken
+  const isStale = () => isDestroyed || myToken !== textLayerRenderToken
+
+  await nextTick()
+  if (isStale()) return
+
+  const textLayerDiv = root.value?.querySelector(
+    '.textLayer'
+  ) as HTMLDivElement | null
+  if (!textLayerDiv) return
+
+  // Always clear before re-rendering to avoid duplication.
+  emptyElement(textLayerDiv)
+
+  const localPage = page ?? (await props.doc.getPage(props.pageNum))
+  if (isStale()) return
+  if (!localPage) return
+
+  const pageRotation = ((props.rotation % 360) + localPage.rotate) % 360
+  const isTransposed = !!((pageRotation / 90) % 2)
+  const viewWidth = (localPage.view[2] || 0) - (localPage.view[0] || 0)
+  const viewHeight = (localPage.view[3] || 0) - (localPage.view[1] || 0)
+  if (!viewWidth || !viewHeight) return
+
+  const ratio = isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
+  const [actualWidth, actualHeight] = getPageDimensions(ratio)
+  if (!actualWidth || !actualHeight) return
+
+  pageRatio.value = ratio
+  pageWidth.value = actualWidth
+  pageHeight.value = actualHeight
+
+  const pageWidthInPDF = isTransposed ? viewHeight : viewWidth
+  const pageScale = actualWidth / pageWidthInPDF
+  const viewport = localPage.getViewport({
+    scale: pageScale,
+    rotation: pageRotation,
+  })
+
+  if (props.textractBlocks) {
+    renderTextractTextLayer({
+      container: textLayerDiv,
+      textractBlocks: props.textractBlocks,
+      pageNum: props.pageNum,
+      rotation: pageRotation,
+    })
+    return
+  }
+
+  const textLayerViewport = viewport.clone({ dontFlip: true })
+  const { scale } = viewport
+  textLayerDiv.style.setProperty('--total-scale-factor', `${scale}`)
+  const textContent = await localPage.getTextContent()
+  if (isStale()) return
+
+  await new TextLayer({
+    container: textLayerDiv,
+    textContentSource: textContent,
+    viewport: textLayerViewport,
+  }).render()
+}
+
 // Function to render the page
 const renderPage = async () => {
   if (!props.doc) {
@@ -301,19 +464,31 @@ const renderPage = async () => {
 
     // Render text layer if enabled
     if (props.textLayer && textLayerDiv) {
-      const textLayerViewport = viewport.clone({ dontFlip: true })
-      const { scale } = viewport
-      textLayerDiv.style.setProperty('--total-scale-factor', `${scale}`)
-      const textContent = await localPage.getTextContent()
-      if (isStale()) {
-        return
+      if (props.textractBlocks) {
+        if (isStale()) {
+          return
+        }
+        renderTextractTextLayer({
+          container: textLayerDiv,
+          textractBlocks: props.textractBlocks,
+          pageNum: props.pageNum,
+          rotation: pageRotation,
+        })
+      } else {
+        const textLayerViewport = viewport.clone({ dontFlip: true })
+        const { scale } = viewport
+        textLayerDiv.style.setProperty('--total-scale-factor', `${scale}`)
+        const textContent = await localPage.getTextContent()
+        if (isStale()) {
+          return
+        }
+        const textLayerRenderTask = new TextLayer({
+          container: textLayerDiv,
+          textContentSource: textContent,
+          viewport: textLayerViewport,
+        }).render()
+        renderTasks.push(textLayerRenderTask)
       }
-      const textLayerRenderTask = new TextLayer({
-        container: textLayerDiv,
-        textContentSource: textContent,
-        viewport: textLayerViewport,
-      }).render()
-      renderTasks.push(textLayerRenderTask)
     }
 
     // Render annotation layer if enabled
@@ -397,6 +572,7 @@ const handleRenderError = (error: Error) => {
 // Function to clean up resources when the page is not rendered
 const cleanup = () => {
   renderToken++
+  textLayerRenderToken++
   isRendered.value = false
   if (renderingTask) {
     renderingTask.cancel()
@@ -566,6 +742,37 @@ watch(
     }
   },
   { immediate: true }
+)
+
+watch(
+  () => props.textLayer,
+  async (enabled) => {
+    if (!shouldRender.value) {
+      return
+    }
+
+    if (enabled) {
+      await renderTextLayerOnly()
+      return
+    }
+
+    const textLayerDiv = root.value?.querySelector('.textLayer') as HTMLElement
+    if (textLayerDiv) {
+      emptyElement(textLayerDiv)
+    }
+  }
+)
+
+watch(
+  () => props.textractBlocks,
+  async () => {
+    // If external OCR data arrives/changes while the text layer is enabled,
+    // rerender the layer to reflect the new content (override mode).
+    if (!shouldRender.value || !props.textLayer) {
+      return
+    }
+    await renderTextLayerOnly()
+  }
 )
 </script>
 

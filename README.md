@@ -69,7 +69,10 @@ const pdfSource = '<PDF_URL>'
 | scale              | `number`                                       | rational numbers                                        | desired page viewport scale                                                                |
 | source             | `string` <br> `object` <br> `PDFDocumentProxy` | document URL or Base64 or typed array or document proxy | source of the document to display                                                          |
 | textLayer          | `boolean`                                      |                                                         | whether the text layer should be enabled                                                   |
+| textractBlocks     | `object`                                       |                                                         | optional AWS Textract blocks response to render an external text layer (overrides PDF.js)  |
 | width              | `number`                                       | natural numbers                                         | desired page width in pixels                                                               |
+
+**Note:** When `textractBlocks` is provided and `textLayer` is enabled, the component renders the text overlay from Textract `LINE` blocks (matching the current page) instead of using PDF.js `getTextContent()`. Bounding boxes are expected to be normalized \(0..1\) with a top-left origin (Textract default).
 
 ### Events
 

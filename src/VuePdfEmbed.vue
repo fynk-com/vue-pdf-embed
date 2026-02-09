@@ -12,7 +12,11 @@ import {
 import { PDFLinkService } from 'pdfjs-dist/web/pdf_viewer.mjs'
 import type { OnProgressParameters, PDFDocumentProxy } from 'pdfjs-dist'
 
-import type { PasswordRequestParams, Source } from './types'
+import type {
+  PasswordRequestParams,
+  Source,
+  TextractBlocksApiResponse,
+} from './types'
 import {
   addPrintStyles,
   createPrintIframe,
@@ -76,6 +80,11 @@ const props = withDefaults(
      * Whether to enable a text layer.
      */
     textLayer: boolean
+    /**
+     * Optional AWS Textract blocks response used to render an external text layer.
+     * When provided, it overrides the default PDF.js text layer rendering.
+     */
+    textractBlocks?: TextractBlocksApiResponse | null
     /**
      * Desired page width.
      */
@@ -397,6 +406,7 @@ defineExpose({
         :annotation-layer="annotationLayer"
         :form-layer="formLayer"
         :text-layer="textLayer"
+        :textract-blocks="textractBlocks"
         :image-resources-path="imageResourcesPath"
         :pages-to-render="pagesToRender"
         :parent-root="root"

@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import VuePdfEmbed from '../src/VuePdfEmbed.vue'
 import PdfPage from '../src/PdfPage.vue'
+import { TextLayer } from 'pdfjs-dist'
 
 HTMLCanvasElement.prototype.getContext = () => null
 
@@ -137,9 +138,175 @@ test('renders slots content', async () => {
   expect(wrapper.html()).toMatch('BEFORE')
 })
 
-test('re-renders page when parent container width changes', async () => {
+test('re-initializes text layer when toggled on', async () => {
   const originalGetContext = HTMLCanvasElement.prototype.getContext
-  HTMLCanvasElement.prototype.getContext = () => ({ clearRect: () => {} }) as any
+  HTMLCanvasElement.prototype.getContext = () =>
+   
+    ({ clearRect: () => {} }) as any
+
+  const textLayerRenderSpy = vi.spyOn(TextLayer.prototype, 'render')
+
+  try {
+    const parentWidth = 300
+    const parentRoot = document.createElement('div')
+    Object.defineProperty(parentRoot, 'clientWidth', {
+      configurable: true,
+      get: () => parentWidth,
+    })
+
+    const doc = {
+      getPage: vi.fn(async () => ({
+        view: [0, 0, 600, 800],
+        rotate: 0,
+        getViewport: ({ scale }: { scale: number; rotation: number }) => ({
+          scale,
+          clone: ({ scale: nextScale }: { scale?: number }) => ({
+            width: 600 * (nextScale ?? scale),
+            height: 800 * (nextScale ?? scale),
+            scale: nextScale ?? scale,
+          }),
+          width: 600 * scale,
+          height: 800 * scale,
+        }),
+        getAnnotations: async () => [],
+        getTextContent: vi.fn(async () => ({})),
+        render: () => ({
+          promise: Promise.resolve(),
+          cancel: () => {},
+        }),
+        cleanup: () => {},
+      })),
+    }
+
+    const wrapper = mount(PdfPage, {
+      props: {
+        id: 'ID-1',
+        pageNum: 1,
+        doc: doc as any,
+        scale: 1,
+        rotation: 0,
+        annotationLayer: false,
+        formLayer: false,
+        textLayer: false,
+        imageResourcesPath: '',
+        pagesToRender: [1],
+        parentRoot,
+      },
+      global: {
+        provide: {
+          linkService: {},
+        },
+      },
+    })
+
+    await flushPromises()
+    expect(wrapper.find('.textLayer').exists()).toBe(false)
+
+    await wrapper.setProps({ textLayer: true })
+    await flushPromises()
+
+    expect(wrapper.find('.textLayer').exists()).toBe(true)
+    expect(textLayerRenderSpy).toHaveBeenCalled()
+  } finally {
+    textLayerRenderSpy.mockRestore()
+    HTMLCanvasElement.prototype.getContext = originalGetContext
+  }
+})
+
+test('renders Textract text layer when provided (override)', async () => {
+  const originalGetContext = HTMLCanvasElement.prototype.getContext
+  HTMLCanvasElement.prototype.getContext = () =>
+    ({ clearRect: () => {} }) as any
+
+  const textLayerRenderSpy = vi.spyOn(TextLayer.prototype, 'render')
+
+  try {
+    const parentRoot = document.createElement('div')
+    Object.defineProperty(parentRoot, 'clientWidth', {
+      configurable: true,
+      get: () => 300,
+    })
+
+    const doc = {
+      getPage: vi.fn(async () => ({
+        view: [0, 0, 600, 800],
+        rotate: 0,
+        getViewport: ({ scale }: { scale: number; rotation: number }) => ({
+          scale,
+          clone: ({ scale: nextScale }: { scale?: number }) => ({
+            width: 600 * (nextScale ?? scale),
+            height: 800 * (nextScale ?? scale),
+            scale: nextScale ?? scale,
+          }),
+          width: 600 * scale,
+          height: 800 * scale,
+        }),
+        getAnnotations: async () => [],
+        getTextContent: vi.fn(async () => ({})),
+        render: () => ({
+          promise: Promise.resolve(),
+          cancel: () => {},
+        }),
+        cleanup: () => {},
+      })),
+    }
+
+    const wrapper = mount(PdfPage, {
+      props: {
+        id: 'ID-1',
+        pageNum: 1,
+        doc: doc as any,
+        scale: 1,
+        rotation: 0,
+        annotationLayer: false,
+        formLayer: false,
+        textLayer: true,
+        textractBlocks: {
+          textract_blocks: [
+            {
+              BlockType: 'LINE',
+              Page: 1,
+              Text: 'HELLO_TEXTRACT',
+              Geometry: {
+                BoundingBox: {
+                  Left: 0.1,
+                  Top: 0.2,
+                  Width: 0.3,
+                  Height: 0.05,
+                },
+              },
+            },
+          ],
+        },
+        imageResourcesPath: '',
+        pagesToRender: [1],
+        parentRoot,
+      },
+      global: {
+        provide: {
+          linkService: {},
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(textLayerRenderSpy).not.toHaveBeenCalled()
+    expect(wrapper.find('.textLayer').exists()).toBe(true)
+    expect(wrapper.find('.textLayer').element.textContent).toContain(
+      'HELLO_TEXTRACT'
+    )
+  } finally {
+    textLayerRenderSpy.mockRestore()
+    HTMLCanvasElement.prototype.getContext = originalGetContext
+  }
+})
+
+test('re-renders page when parent container widt
+   h changes', async () => {
+  const originalGetContext = HTMLCanvasElement.prototype.getContext
+  HTMLCanvasElement.prototype.getContext = () =>
+    ({ clearRect: () => {} }) as any
 
   try {
     let parentWidth = 300

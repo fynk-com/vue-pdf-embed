@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import VuePdfEmbed from '../src/VuePdfEmbed.vue'
 import PdfPage from '../src/PdfPage.vue'
-import { TextLayer } from 'pdfjs-dist'
+import { TextLayer, type PDFDocumentProxy } from 'pdfjs-dist'
 
 HTMLCanvasElement.prototype.getContext = () => null
 
@@ -25,6 +25,13 @@ let lastResizeObserverCallback: ResizeObserverCallback | null = null
   observe() {}
   disconnect() {}
 }
+
+const create2dCtx = (): CanvasRenderingContext2D =>
+  ({
+    clearRect: () => {},
+    // Enough for `canvas.measureText()` usage in PdfPage's Textract renderer.
+    measureText: (t: string) => ({ width: t.length * 10 }) as TextMetrics,
+  }) as unknown as CanvasRenderingContext2D
 
 vi.mock('pdfjs-dist', () => ({
   // used by useVuePdfEmbed()
@@ -140,9 +147,7 @@ test('renders slots content', async () => {
 
 test('re-initializes text layer when toggled on', async () => {
   const originalGetContext = HTMLCanvasElement.prototype.getContext
-  HTMLCanvasElement.prototype.getContext = () =>
-   
-    ({ clearRect: () => {} }) as any
+  HTMLCanvasElement.prototype.getContext = () => create2dCtx()
 
   const textLayerRenderSpy = vi.spyOn(TextLayer.prototype, 'render')
 
@@ -154,35 +159,34 @@ test('re-initializes text layer when toggled on', async () => {
       get: () => parentWidth,
     })
 
-    const doc = {
-      getPage: vi.fn(async () => ({
-        view: [0, 0, 600, 800],
-        rotate: 0,
-        getViewport: ({ scale }: { scale: number; rotation: number }) => ({
-          scale,
-          clone: ({ scale: nextScale }: { scale?: number }) => ({
-            width: 600 * (nextScale ?? scale),
-            height: 800 * (nextScale ?? scale),
-            scale: nextScale ?? scale,
-          }),
-          width: 600 * scale,
-          height: 800 * scale,
+    const getPage = vi.fn(async () => ({
+      view: [0, 0, 600, 800],
+      rotate: 0,
+      getViewport: ({ scale }: { scale: number; rotation: number }) => ({
+        scale,
+        clone: ({ scale: nextScale }: { scale?: number }) => ({
+          width: 600 * (nextScale ?? scale),
+          height: 800 * (nextScale ?? scale),
+          scale: nextScale ?? scale,
         }),
-        getAnnotations: async () => [],
-        getTextContent: vi.fn(async () => ({})),
-        render: () => ({
-          promise: Promise.resolve(),
-          cancel: () => {},
-        }),
-        cleanup: () => {},
-      })),
-    }
+        width: 600 * scale,
+        height: 800 * scale,
+      }),
+      getAnnotations: async () => [],
+      getTextContent: vi.fn(async () => ({})),
+      render: () => ({
+        promise: Promise.resolve(),
+        cancel: () => {},
+      }),
+      cleanup: () => {},
+    }))
+    const doc = { getPage } as unknown as PDFDocumentProxy
 
     const wrapper = mount(PdfPage, {
       props: {
         id: 'ID-1',
         pageNum: 1,
-        doc: doc as any,
+        doc,
         scale: 1,
         rotation: 0,
         annotationLayer: false,
@@ -215,8 +219,7 @@ test('re-initializes text layer when toggled on', async () => {
 
 test('renders Textract text layer when provided (override)', async () => {
   const originalGetContext = HTMLCanvasElement.prototype.getContext
-  HTMLCanvasElement.prototype.getContext = () =>
-    ({ clearRect: () => {} }) as any
+  HTMLCanvasElement.prototype.getContext = () => create2dCtx()
 
   const textLayerRenderSpy = vi.spyOn(TextLayer.prototype, 'render')
 
@@ -227,35 +230,34 @@ test('renders Textract text layer when provided (override)', async () => {
       get: () => 300,
     })
 
-    const doc = {
-      getPage: vi.fn(async () => ({
-        view: [0, 0, 600, 800],
-        rotate: 0,
-        getViewport: ({ scale }: { scale: number; rotation: number }) => ({
-          scale,
-          clone: ({ scale: nextScale }: { scale?: number }) => ({
-            width: 600 * (nextScale ?? scale),
-            height: 800 * (nextScale ?? scale),
-            scale: nextScale ?? scale,
-          }),
-          width: 600 * scale,
-          height: 800 * scale,
+    const getPage = vi.fn(async () => ({
+      view: [0, 0, 600, 800],
+      rotate: 0,
+      getViewport: ({ scale }: { scale: number; rotation: number }) => ({
+        scale,
+        clone: ({ scale: nextScale }: { scale?: number }) => ({
+          width: 600 * (nextScale ?? scale),
+          height: 800 * (nextScale ?? scale),
+          scale: nextScale ?? scale,
         }),
-        getAnnotations: async () => [],
-        getTextContent: vi.fn(async () => ({})),
-        render: () => ({
-          promise: Promise.resolve(),
-          cancel: () => {},
-        }),
-        cleanup: () => {},
-      })),
-    }
+        width: 600 * scale,
+        height: 800 * scale,
+      }),
+      getAnnotations: async () => [],
+      getTextContent: vi.fn(async () => ({})),
+      render: () => ({
+        promise: Promise.resolve(),
+        cancel: () => {},
+      }),
+      cleanup: () => {},
+    }))
+    const doc = { getPage } as unknown as PDFDocumentProxy
 
     const wrapper = mount(PdfPage, {
       props: {
         id: 'ID-1',
         pageNum: 1,
-        doc: doc as any,
+        doc,
         scale: 1,
         rotation: 0,
         annotationLayer: false,
@@ -302,11 +304,9 @@ test('renders Textract text layer when provided (override)', async () => {
   }
 })
 
-test('re-renders page when parent container widt
-   h changes', async () => {
+test('re-renders page when parent container width changes', async () => {
   const originalGetContext = HTMLCanvasElement.prototype.getContext
-  HTMLCanvasElement.prototype.getContext = () =>
-    ({ clearRect: () => {} }) as any
+  HTMLCanvasElement.prototype.getContext = () => create2dCtx()
 
   try {
     let parentWidth = 300
@@ -321,31 +321,30 @@ test('re-renders page when parent container widt
       cancel: () => {},
     }))
 
-    const doc = {
-      getPage: vi.fn(async () => ({
-        view: [0, 0, 600, 800],
-        rotate: 0,
-        getViewport: ({ scale }: { scale: number; rotation: number }) => ({
-          scale,
-          clone: ({ scale: nextScale }: { scale?: number }) => ({
-            width: 600 * (nextScale ?? scale),
-            height: 800 * (nextScale ?? scale),
-            scale: nextScale ?? scale,
-          }),
-          width: 600 * scale,
-          height: 800 * scale,
+    const getPage = vi.fn(async () => ({
+      view: [0, 0, 600, 800],
+      rotate: 0,
+      getViewport: ({ scale }: { scale: number; rotation: number }) => ({
+        scale,
+        clone: ({ scale: nextScale }: { scale?: number }) => ({
+          width: 600 * (nextScale ?? scale),
+          height: 800 * (nextScale ?? scale),
+          scale: nextScale ?? scale,
         }),
-        getAnnotations: async () => [],
-        render: renderSpy,
-        cleanup: () => {},
-      })),
-    }
+        width: 600 * scale,
+        height: 800 * scale,
+      }),
+      getAnnotations: async () => [],
+      render: renderSpy,
+      cleanup: () => {},
+    }))
+    const doc = { getPage } as unknown as PDFDocumentProxy
 
     const wrapper = mount(PdfPage, {
       props: {
         id: 'ID-1',
         pageNum: 1,
-        doc: doc as any,
+        doc,
         scale: 1,
         rotation: 0,
         annotationLayer: false,
@@ -363,7 +362,7 @@ test('re-renders page when parent container widt
     })
 
     await flushPromises()
-    const initialGetPageCalls = (doc.getPage as any).mock.calls.length
+    const initialGetPageCalls = getPage.mock.calls.length
     const initialRenderCalls = renderSpy.mock.calls.length
     expect(initialGetPageCalls).toBeGreaterThan(0)
     expect(initialRenderCalls).toBeGreaterThan(0)
@@ -371,15 +370,13 @@ test('re-renders page when parent container widt
     // Simulate parent resize and ResizeObserver notification.
     parentWidth = 600
     expect(lastResizeObserverCallback).toBeTruthy()
-    lastResizeObserverCallback?.([], {} as any)
+    lastResizeObserverCallback?.([], {} as unknown as ResizeObserver)
 
     // rAF throttling: let queued resize work run.
     await new Promise((r) => requestAnimationFrame(() => r(null)))
     await flushPromises()
 
-    expect((doc.getPage as any).mock.calls.length).toBeGreaterThan(
-      initialGetPageCalls
-    )
+    expect(getPage.mock.calls.length).toBeGreaterThan(initialGetPageCalls)
     expect(renderSpy.mock.calls.length).toBeGreaterThan(initialRenderCalls)
 
     wrapper.unmount()

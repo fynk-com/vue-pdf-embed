@@ -198,6 +198,103 @@ const renderFormFields = (
 
 const isRendered = ref(false)
 
+let textractMeasureEl: HTMLSpanElement | null = null
+let textractMeasureWidthEl: HTMLSpanElement | null = null
+let textractMeasureFontFamily: string | null = null
+let textractBaseHeightAt100Px: number | null = null
+let textractCanvasCtx: CanvasRenderingContext2D | null = null
+
+const getTextractCanvasCtx = (): CanvasRenderingContext2D | null => {
+  if (textractCanvasCtx) return textractCanvasCtx
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  if (!ctx || typeof ctx.measureText !== 'function') {
+    return null
+  }
+  textractCanvasCtx = ctx
+  return textractCanvasCtx
+}
+
+const getTextractFontFamily = (container: HTMLElement): string => {
+  // Prefer inheriting from the page container if user styles it.
+  // Fallback to a sane default.
+  const computed = window.getComputedStyle(container)
+  return computed.fontFamily || 'sans-serif'
+}
+
+const ensureTextractBaseline = (container: HTMLElement) => {
+  const fontFamily = getTextractFontFamily(container)
+  if (
+    textractMeasureEl &&
+    textractMeasureFontFamily === fontFamily &&
+    textractBaseHeightAt100Px != null
+  ) {
+    return
+  }
+
+  if (!textractMeasureEl) {
+    textractMeasureEl = document.createElement('span')
+    textractMeasureEl.style.position = 'absolute'
+    textractMeasureEl.style.left = '-99999px'
+    textractMeasureEl.style.top = '-99999px'
+    textractMeasureEl.style.visibility = 'hidden'
+    textractMeasureEl.style.whiteSpace = 'pre'
+    textractMeasureEl.style.lineHeight = '1'
+    document.body.appendChild(textractMeasureEl)
+  }
+  if (!textractMeasureWidthEl) {
+    textractMeasureWidthEl = document.createElement('span')
+    textractMeasureWidthEl.style.position = 'absolute'
+    textractMeasureWidthEl.style.left = '-99999px'
+    textractMeasureWidthEl.style.top = '-99999px'
+    textractMeasureWidthEl.style.visibility = 'hidden'
+    textractMeasureWidthEl.style.whiteSpace = 'pre'
+    textractMeasureWidthEl.style.lineHeight = '1'
+    document.body.appendChild(textractMeasureWidthEl)
+  }
+
+  textractMeasureEl.textContent = 'Mg'
+  textractMeasureEl.style.fontFamily = fontFamily
+  textractMeasureEl.style.fontSize = '100px'
+
+  const rect = textractMeasureEl.getBoundingClientRect()
+  // In some test/SSR-like environments this can be 0; fall back later.
+  textractBaseHeightAt100Px = rect.height || null
+  textractMeasureFontFamily = fontFamily
+}
+
+const measureTextractTextWidthPx = ({
+  text,
+  fontSizePx,
+  fontFamily,
+}: {
+  text: string
+  fontSizePx: number
+  fontFamily: string
+}): number => {
+  const ctx = getTextractCanvasCtx()
+  if (ctx) {
+    ctx.font = `${fontSizePx}px ${fontFamily}`
+    return ctx.measureText(text).width
+  }
+
+  // Fallback for test/non-canvas environments (e.g. happy-dom).
+  if (!textractMeasureWidthEl) {
+    textractMeasureWidthEl = document.createElement('span')
+    textractMeasureWidthEl.style.position = 'absolute'
+    textractMeasureWidthEl.style.left = '-99999px'
+    textractMeasureWidthEl.style.top = '-99999px'
+    textractMeasureWidthEl.style.visibility = 'hidden'
+    textractMeasureWidthEl.style.whiteSpace = 'pre'
+    textractMeasureWidthEl.style.lineHeight = '1'
+    document.body.appendChild(textractMeasureWidthEl)
+  }
+  textractMeasureWidthEl.textContent = text
+  textractMeasureWidthEl.style.fontFamily = fontFamily
+  textractMeasureWidthEl.style.fontSize = `${fontSizePx}px`
+  return textractMeasureWidthEl.getBoundingClientRect().width
+}
+
 const normalizeRotation = (rotation: number): 0 | 90 | 180 | 270 => {
   const r = ((rotation % 360) + 360) % 360
   if (r === 90 || r === 180 || r === 270) return r
@@ -254,9 +351,12 @@ const renderTextractTextLayer = ({
     return
   }
 
+  ensureTextractBaseline(container)
+  const fontFamily = getTextractFontFamily(container)
+
   const containerRect = container.getBoundingClientRect()
+  const containerWidthPx = containerRect.width || pageWidth.value || 0
   const containerHeightPx = containerRect.height || pageHeight.value || 0
-  const fallbackFontPx = 10
 
   for (const block of blocks) {
     if (block?.BlockType !== 'LINE') continue
@@ -266,6 +366,31 @@ const renderTextractTextLayer = ({
     if (!text || !bbox) continue
 
     const mapped = mapTextractBBoxForRotation(bbox, rotation)
+
+    const targetWidthPx = containerWidthPx * mapped.Width
+    const targetHeightPx = containerHeightPx * mapped.Height
+
+    // Derive font-size primarily from height (stable proxy for font size),
+    // then fit width with horizontal scaling using fast canvas measurement.
+    const baseHeight = textractBaseHeightAt100Px
+    let fontSizePx =
+      baseHeight && baseHeight > 0 ? (100 * targetHeightPx) / baseHeight : 0
+    if (!Number.isFinite(fontSizePx) || fontSizePx <= 0) {
+      // Fallback: treat bbox height as font-size in px.
+      fontSizePx = Math.max(1, targetHeightPx)
+    }
+
+    const measuredWidthPx = measureTextractTextWidthPx({
+      text,
+      fontSizePx,
+      fontFamily,
+    })
+    let scaleX = measuredWidthPx > 0 ? targetWidthPx / measuredWidthPx : 1
+    if (!Number.isFinite(scaleX) || scaleX <= 0) {
+      scaleX = 1
+    }
+    // Clamp to avoid absurd scaling due to bad OCR boxes.
+    scaleX = Math.min(10, Math.max(0.1, scaleX))
 
     const el = document.createElement('span')
     el.textContent = text
@@ -280,12 +405,9 @@ const renderTextractTextLayer = ({
     el.style.whiteSpace = 'pre'
     el.style.transformOrigin = '0 0'
     el.style.lineHeight = '1'
-
-    const fontPx =
-      containerHeightPx > 0
-        ? Math.max(1, mapped.Height * containerHeightPx)
-        : fallbackFontPx
-    el.style.fontSize = `${fontPx}px`
+    el.style.fontFamily = fontFamily
+    el.style.fontSize = `${fontSizePx}px`
+    el.style.transform = `scaleX(${scaleX})`
 
     container.appendChild(el)
   }
@@ -715,6 +837,14 @@ onBeforeUnmount(() => {
   if (pendingRetryRaf != null) {
     cancelAnimationFrame(pendingRetryRaf)
     pendingRetryRaf = null
+  }
+  if (textractMeasureEl) {
+    textractMeasureEl.remove()
+    textractMeasureEl = null
+  }
+  if (textractMeasureWidthEl) {
+    textractMeasureWidthEl.remove()
+    textractMeasureWidthEl = null
   }
   cleanup()
 })

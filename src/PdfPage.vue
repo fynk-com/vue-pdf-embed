@@ -65,7 +65,9 @@ const pageRatio = ref<number | null>(null)
 const injectedLinkService = inject('linkService') as PDFLinkService
 
 const getContainerElement = (): HTMLElement | null => {
-  return props.parentRoot ?? root.value
+  // Prefer a parent/container element so we can react to layout changes even if
+  // the page element itself is temporarily constrained (e.g. mounted in a hidden modal).
+  return props.parentRoot ?? root.value?.parentElement ?? root.value
 }
 
 const getContainerWidth = (): number => {
@@ -507,11 +509,16 @@ const renderPage = async () => {
     const ratio = isTransposed ? viewWidth / viewHeight : viewHeight / viewWidth
     const [actualWidth, actualHeight] = getPageDimensions(ratio)
     if (!actualWidth || !actualHeight) {
-      // Late-mount/layout: retry next frame to avoid capturing a bogus scale.
+      // Late-mount/layout: schedule a single retry next frame.
+      // If still 0-width (e.g. modal closed), rely on ResizeObserver (or a later prop change)
+      // to trigger the next render attempt rather than looping every frame.
       if (pendingRetryRaf == null) {
         pendingRetryRaf = window.requestAnimationFrame(() => {
           pendingRetryRaf = null
-          if (shouldRender.value) {
+          if (!shouldRender.value) {
+            return
+          }
+          if (getContainerWidth() > 0) {
             cleanup()
             renderPage()
           }
@@ -643,9 +650,10 @@ const renderPage = async () => {
       })
       renderTasks.push(annotationRenderTask)
 
-      const formLayerDiv = document.querySelector(
-        '#' + props.id + ' .formLayer'
-      ) as HTMLElement
+      // Scope to this page instance to avoid cross-instance collisions.
+      const formLayerDiv = root.value?.querySelector(
+        '.formLayer'
+      ) as HTMLElement | null
       if (!formLayerDiv) {
         return
       }
@@ -762,9 +770,16 @@ const setup = async () => {
     pageRatio.value = ratio
     const [actualWidth, actualHeight] = getPageDimensions(ratio)
 
-    // Update pageWidth and pageHeight
-    pageWidth.value = actualWidth
-    pageHeight.value = actualHeight
+    // Update pageWidth/pageHeight only if we have a real container width.
+    // If mounted in a hidden container (width = 0), setting pageWidth = 0 would
+    // apply maxWidth: 0px in the template and can prevent future resizes from being observed.
+    if (actualWidth > 0 && actualHeight > 0) {
+      pageWidth.value = actualWidth
+      pageHeight.value = actualHeight
+    } else {
+      pageWidth.value = undefined
+      pageHeight.value = undefined
+    }
 
     // Now set up the observer
     observer = new IntersectionObserver(
@@ -821,6 +836,47 @@ const setup = async () => {
     console.error('Failed to get page for dimensions:', error)
   }
 }
+
+// If the container element arrives/changes after mount (e.g. parent template ref becomes available),
+// rebind the ResizeObserver so auto-fit can start reacting immediately.
+watch(
+  () => props.parentRoot,
+  () => {
+    const usesContainerWidth = !props.width && !props.height
+    if (!usesContainerWidth) {
+      return
+    }
+
+    const resizeEl = getContainerElement()
+    if (!resizeEl) {
+      return
+    }
+
+    resizeObserver?.disconnect()
+    resizeObserver = new ResizeObserver(() => {
+      if (resizeRaf != null) {
+        return
+      }
+      resizeRaf = window.requestAnimationFrame(() => {
+        resizeRaf = null
+
+        if (pageRatio.value) {
+          const [w, h] = getPageDimensions(pageRatio.value)
+          if (w && h) {
+            pageWidth.value = w
+            pageHeight.value = h
+          }
+        }
+
+        if (shouldRender.value) {
+          cleanup()
+          renderPage()
+        }
+      })
+    })
+    resizeObserver.observe(resizeEl)
+  }
+)
 
 onBeforeUnmount(() => {
   isDestroyed = true
@@ -914,10 +970,12 @@ watch(
     :style="[
       {
         position: 'relative',
-        maxWidth: pageWidth + 'px',
+        maxWidth: pageWidth ? pageWidth + 'px' : undefined,
         background: '#FFFFFF',
         width: '100%',
-        aspectRatio: `${pageWidth} / ${pageHeight}`,
+        // Keep stable height early (before we know width) to avoid a 0-height container.
+        // pageRatio is height/width, while CSS aspect-ratio expects width/height.
+        aspectRatio: pageRatio ? `${1} / ${pageRatio}` : undefined,
       },
     ]"
   >

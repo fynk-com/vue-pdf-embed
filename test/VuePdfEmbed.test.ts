@@ -159,7 +159,7 @@ test('routes a URL instance through `url` (not spread)', async () => {
   })
 })
 
-test('routes a TypedArray through `url` (not spread)', async () => {
+test('routes a TypedArray through `data` (not spread or url)', async () => {
   getDocumentMock.mockClear()
   const data = new Uint8Array([1, 2, 3])
   mount(VuePdfEmbed, {
@@ -169,7 +169,22 @@ test('routes a TypedArray through `url` (not spread)', async () => {
   })
   await flushPromises()
   expect(getDocumentMock).toHaveBeenCalledWith({
-    url: data,
+    data,
+    verbosity: 0,
+  })
+})
+
+test('routes an ArrayBuffer through `data` (not spread or url)', async () => {
+  getDocumentMock.mockClear()
+  const data = new Uint8Array([1, 2, 3]).buffer
+  mount(VuePdfEmbed, {
+    props: {
+      source: data,
+    },
+  })
+  await flushPromises()
+  expect(getDocumentMock).toHaveBeenCalledWith({
+    data,
     verbosity: 0,
   })
 })

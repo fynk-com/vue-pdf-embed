@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import VuePdfEmbed from '../src/VuePdfEmbed.vue'
 import PdfPage from '../src/PdfPage.vue'
-import { TextLayer, type PDFDocumentProxy } from 'pdfjs-dist'
+import { TextLayer, getDocument, type PDFDocumentProxy } from 'pdfjs-dist'
 
 HTMLCanvasElement.prototype.getContext = () => null
 
@@ -38,7 +38,7 @@ vi.mock('pdfjs-dist', () => ({
   GlobalWorkerOptions: {},
   PasswordResponses: { INCORRECT_PASSWORD: 1 },
   VerbosityLevel: { ERRORS: 0 },
-  getDocument: () => ({
+  getDocument: vi.fn(() => ({
     promise: Promise.resolve({
       numPages: 3,
       getPage: () => ({
@@ -69,7 +69,7 @@ vi.mock('pdfjs-dist', () => ({
       destroy: () => {},
     }),
     destroy: () => {},
-  }),
+  })),
 
   // used by PdfPage.vue (we keep these very small for unit tests)
   TextLayer: class {
@@ -91,6 +91,103 @@ vi.mock('pdfjs-dist/web/pdf_viewer.mjs', () => ({
     setViewer() {}
   },
 }))
+
+const getDocumentMock = vi.mocked(getDocument)
+
+test('passes a string source through as `url`', async () => {
+  getDocumentMock.mockClear()
+  mount(VuePdfEmbed, {
+    props: {
+      source: 'SOURCE',
+    },
+  })
+  await flushPromises()
+  expect(getDocumentMock).toHaveBeenCalledWith({
+    url: 'SOURCE',
+    verbosity: 0,
+  })
+})
+
+test('forwards an object source (asset URLs) to getDocument', async () => {
+  getDocumentMock.mockClear()
+  const source = {
+    url: 'SOURCE',
+    wasmUrl: '/vendor/pdfjs/wasm/',
+    cMapUrl: '/vendor/pdfjs/cmaps/',
+    cMapPacked: true,
+    standardFontDataUrl: '/vendor/pdfjs/standard_fonts/',
+    iccUrl: '/vendor/pdfjs/iccs/',
+  }
+  mount(VuePdfEmbed, {
+    props: {
+      source,
+    },
+  })
+  await flushPromises()
+  expect(getDocumentMock).toHaveBeenCalledWith({
+    verbosity: 0,
+    ...source,
+  })
+})
+
+test('lets an object source override the default verbosity', async () => {
+  getDocumentMock.mockClear()
+  mount(VuePdfEmbed, {
+    props: {
+      source: { url: 'SOURCE', verbosity: 5 },
+    },
+  })
+  await flushPromises()
+  expect(getDocumentMock).toHaveBeenCalledWith({
+    url: 'SOURCE',
+    verbosity: 5,
+  })
+})
+
+test('routes a URL instance through `url` (not spread)', async () => {
+  getDocumentMock.mockClear()
+  const url = new URL('https://example.com/doc.pdf')
+  mount(VuePdfEmbed, {
+    props: {
+      source: url,
+    },
+  })
+  await flushPromises()
+  expect(getDocumentMock).toHaveBeenCalledWith({
+    url,
+    verbosity: 0,
+  })
+})
+
+test('routes a TypedArray through `data` (not spread or url)', async () => {
+  getDocumentMock.mockClear()
+  const data = new Uint8Array([1, 2, 3])
+  mount(VuePdfEmbed, {
+    props: {
+      source: data,
+    },
+  })
+  await flushPromises()
+  expect(getDocumentMock).toHaveBeenCalledWith({
+    data,
+    verbosity: 0,
+  })
+})
+
+test('routes an ArrayBuffer through `data` (not spread or url)', async () => {
+  getDocumentMock.mockClear()
+  const data = new Uint8Array([1, 2, 3]).buffer
+  mount(VuePdfEmbed, {
+    props: {
+      source: data,
+    },
+  })
+  await flushPromises()
+  expect(getDocumentMock).toHaveBeenCalledWith({
+    data,
+    verbosity: 0,
+  })
+})
 
 test('sets correct data', async () => {
   const wrapper = mount(VuePdfEmbed, {

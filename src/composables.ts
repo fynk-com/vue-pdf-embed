@@ -19,6 +19,21 @@ import type { PasswordRequestParams, Source } from './types'
 import { isDocument } from './utils'
 import type { DocumentInitParameters } from 'pdfjs-dist/types/src/display/api'
 
+const isDocumentInitParameters = (
+  value: unknown
+): value is DocumentInitParameters => {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
+const isBinarySource = (
+  value: unknown
+): value is ArrayBuffer | ArrayBufferView =>
+  value instanceof ArrayBuffer || ArrayBuffer.isView(value)
+
 export function useVuePdfEmbed({
   onError,
   onPasswordRequest,
@@ -46,9 +61,13 @@ export function useVuePdfEmbed({
     }
 
     try {
-      const params: DocumentInitParameters = {
-        url: sourceValue as string,
-        verbosity: VerbosityLevel.ERRORS,
+      let params: DocumentInitParameters
+      if (isDocumentInitParameters(sourceValue)) {
+        params = { verbosity: VerbosityLevel.ERRORS, ...sourceValue }
+      } else if (isBinarySource(sourceValue)) {
+        params = { data: sourceValue, verbosity: VerbosityLevel.ERRORS }
+      } else {
+        params = { url: sourceValue as string, verbosity: VerbosityLevel.ERRORS }
       }
       docLoadingTask.value = getDocument(params)
 
